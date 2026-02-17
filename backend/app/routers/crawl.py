@@ -86,6 +86,7 @@ async def stream_crawl_events(
                         "pages_found": job.pages_found,
                         "pages_crawled": job.pages_crawled,
                         "pages_changed": job.pages_changed,
+                        "pages_skipped": job.pages_skipped,
                         "max_pages": job.max_pages,
                     }
                 )
@@ -152,6 +153,7 @@ async def stream_crawl_events(
                 current_job.pages_found,
                 current_job.pages_crawled,
                 current_job.pages_changed,
+                current_job.pages_skipped,
             )
             progress_event = None
             if current_progress != last_progress:
@@ -160,6 +162,7 @@ async def stream_crawl_events(
                     "pages_found": current_job.pages_found,
                     "pages_crawled": current_job.pages_crawled,
                     "pages_changed": current_job.pages_changed,
+                    "pages_skipped": current_job.pages_skipped,
                     "max_pages": current_job.max_pages,
                 }
                 last_progress = current_progress

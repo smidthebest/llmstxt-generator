@@ -57,6 +57,12 @@ async def run_crawl_job(
         pages_changed = 0
         new_pages: list[Page] = []
 
+        async def on_page_skipped(
+            url: str, depth: int, reason: str, skipped_count: int
+        ):
+            job.pages_skipped = skipped_count
+            await db.commit()
+
         async def on_page_crawled(
             metadata: PageMetadata, depth: int, crawled: int, found: int
         ):
@@ -94,7 +100,12 @@ async def run_crawl_job(
         if max_pages is not None:
             crawler_kwargs["max_pages"] = max_pages
 
-        crawler = Crawler(site.url, on_page_crawled=on_page_crawled, **crawler_kwargs)
+        crawler = Crawler(
+            site.url,
+            on_page_crawled=on_page_crawled,
+            on_page_skipped=on_page_skipped,
+            **crawler_kwargs,
+        )
         crawl_results = await crawler.crawl()
 
         # Update site title/description from root page
@@ -108,6 +119,7 @@ async def run_crawl_job(
         job.pages_found = len(crawl_results)
         job.pages_crawled = len(crawl_results)
         job.pages_changed = pages_changed
+        job.pages_skipped = crawler.skipped
         job.status = "completed"
         await db.commit()
 
@@ -133,10 +145,11 @@ async def run_crawl_job(
         await db.commit()
 
         logger.info(
-            "Crawl completed for %s: %s pages, %s changed",
+            "Crawl completed for %s: %s pages, %s changed, %s skipped",
             site.domain,
             len(crawl_results),
             pages_changed,
+            crawler.skipped,
         )
         return True
 

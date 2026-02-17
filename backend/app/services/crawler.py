@@ -27,6 +27,7 @@ class Crawler:
         concurrency: int = settings.crawl_concurrency,
         delay_ms: int = settings.crawl_delay_ms,
         on_page_crawled=None,
+        on_page_skipped=None,
     ):
         self.root_url = root_url.rstrip("/")
         parsed = urlparse(self.root_url)
@@ -37,9 +38,11 @@ class Crawler:
         self.semaphore = asyncio.Semaphore(concurrency)
         self.delay = delay_ms / 1000.0
         self.on_page_crawled = on_page_crawled
+        self.on_page_skipped = on_page_skipped
 
         self.visited: set[str] = set()
         self.results: list[tuple[PageMetadata, int]] = []  # (metadata, depth)
+        self.skipped: int = 0
         self.robot_parser: RobotExclusionRulesParser | None = None
 
     async def crawl(self) -> list[tuple[PageMetadata, int]]:
@@ -64,8 +67,11 @@ class Crawler:
                     continue
                 self.visited.add(url)
 
-                metadata = await self._fetch_page(url)
+                metadata, skip_reason = await self._fetch_page(url)
                 if metadata is None:
+                    if skip_reason and self.on_page_skipped:
+                        self.skipped += 1
+                        await self.on_page_skipped(url, depth, skip_reason, self.skipped)
                     continue
 
                 self.results.append((metadata, depth))
@@ -79,20 +85,26 @@ class Crawler:
 
         return self.results
 
-    async def _fetch_page(self, url: str) -> PageMetadata | None:
+    async def _fetch_page(self, url: str) -> tuple[PageMetadata | None, str | None]:
         async with self.semaphore:
             try:
                 await asyncio.sleep(self.delay)
                 resp = await self.client.get(url)
                 if resp.status_code != 200:
-                    return None
+                    return None, f"HTTP {resp.status_code}"
                 content_type = resp.headers.get("content-type", "")
                 if "text/html" not in content_type:
-                    return None
-                return extract_metadata(url, resp.text)
+                    return None, f"Non-HTML ({content_type.split(';')[0].strip()})"
+                metadata = extract_metadata(url, resp.text)
+                if metadata is None:
+                    return None, "Empty or unparseable HTML"
+                return metadata, None
+            except httpx.TimeoutException:
+                logger.warning("Timeout fetching %s", url)
+                return None, "Timeout"
             except Exception as e:
-                logger.warning(f"Failed to fetch {url}: {e}")
-                return None
+                logger.warning("Failed to fetch %s: %s", url, e)
+                return None, str(e)[:100]
 
     def _should_crawl(self, url: str) -> bool:
         parsed = urlparse(url)

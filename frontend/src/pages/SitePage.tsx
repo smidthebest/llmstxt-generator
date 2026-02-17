@@ -32,6 +32,7 @@ export default function SitePage() {
   const [editing, setEditing] = useState(false);
   const [copied, setCopied] = useState(false);
   const [crawlConfig, setCrawlConfig] = useState<CrawlConfig>({});
+  const configInitialized = useRef(false);
 
   const { data: site } = useQuery({
     queryKey: ["site", siteId],
@@ -79,6 +80,14 @@ export default function SitePage() {
         initialTabSet.current = true;
         const s = jobs[0].status;
         if (s === "completed" || s === "failed") setTab("result");
+      }
+    }
+    // Seed crawl config from the most recent job's max_pages
+    if (jobs && jobs.length > 0 && !configInitialized.current) {
+      configInitialized.current = true;
+      const lastMaxPages = jobs[0].max_pages;
+      if (lastMaxPages && lastMaxPages !== 200) {
+        setCrawlConfig((prev) => ({ ...prev, max_pages: lastMaxPages }));
       }
     }
   }, [jobs, activeJobId]);
@@ -144,7 +153,7 @@ export default function SitePage() {
 
       {/* Advanced Config */}
       <div className="mb-6">
-        <CrawlConfigPanel onChange={setCrawlConfig} />
+        <CrawlConfigPanel onChange={setCrawlConfig} initialConfig={crawlConfig} />
       </div>
 
       {/* Tabs */}

@@ -19,6 +19,7 @@ export interface CrawlJob {
   pages_found: number;
   pages_crawled: number;
   pages_changed: number;
+  pages_skipped: number;
   max_pages: number;
   error_message: string | null;
   created_at: string;

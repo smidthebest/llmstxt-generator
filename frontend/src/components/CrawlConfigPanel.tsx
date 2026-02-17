@@ -1,14 +1,20 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { CrawlConfig } from "../api/client";
 
 interface Props {
   onChange: (config: CrawlConfig) => void;
+  initialConfig?: CrawlConfig;
 }
 
-export default function CrawlConfigPanel({ onChange }: Props) {
+export default function CrawlConfigPanel({ onChange, initialConfig }: Props) {
   const [open, setOpen] = useState(false);
-  const [maxDepth, setMaxDepth] = useState(3);
-  const [maxPages, setMaxPages] = useState(200);
+  const [maxDepth, setMaxDepth] = useState(initialConfig?.max_depth ?? 3);
+  const [maxPages, setMaxPages] = useState(initialConfig?.max_pages ?? 200);
+
+  useEffect(() => {
+    if (initialConfig?.max_depth != null) setMaxDepth(initialConfig.max_depth);
+    if (initialConfig?.max_pages != null) setMaxPages(initialConfig.max_pages);
+  }, [initialConfig?.max_depth, initialConfig?.max_pages]);
 
   const handleDepth = (v: number) => {
     setMaxDepth(v);

@@ -161,6 +161,7 @@ export default function CrawlVisualization({
   const found = progress?.pages_found ?? job.pages_found;
   const crawled = progress?.pages_crawled ?? job.pages_crawled;
   const changed = progress?.pages_changed ?? job.pages_changed;
+  const skipped = progress?.pages_skipped ?? job.pages_skipped;
   const maxPages = progress?.max_pages ?? job.max_pages;
   const pct = maxPages > 0 ? Math.min(Math.round((crawled / maxPages) * 100), 100) : 0;
   const status = isComplete
@@ -220,20 +221,50 @@ export default function CrawlVisualization({
       )}
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-4 gap-4">
         {[
-          { label: "Found", value: found },
           { label: "Crawled", value: `${crawled} / ${maxPages}` },
+          { label: "Found", value: found },
           { label: "Changed", value: changed },
+          { label: "Skipped", value: skipped, warn: skipped > 0 },
         ].map((s) => (
           <div key={s.label} className="py-3">
-            <div className="text-xl font-mono text-[#f0f0f0]">{s.value}</div>
+            <div className={`text-xl font-mono ${
+              "warn" in s && s.warn ? "text-[#f59e0b]" : "text-[#f0f0f0]"
+            }`}>{s.value}</div>
             <div className="text-[10px] tracking-[0.15em] uppercase text-[#ccc] mt-1">
               {s.label}
             </div>
           </div>
         ))}
       </div>
+
+      {/* Skipped warning */}
+      {skipped > 0 && crawled === 0 && status !== "running" && status !== "pending" && (
+        <div className="py-4 px-5 border border-[#f59e0b]/20 rounded-lg space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="text-[#f59e0b] text-sm font-medium">No pages could be processed</span>
+          </div>
+          <p className="text-xs text-[#ccc] leading-relaxed">
+            The crawler attempted {skipped} URL{skipped !== 1 ? "s" : ""} but none returned usable HTML content.
+            This typically happens when a site blocks automated requests (403 Forbidden),
+            requires JavaScript rendering, or uses a CDN/WAF that rejects non-browser traffic.
+          </p>
+          <p className="text-[10px] text-[#aaa] font-mono">
+            Try a site with server-rendered HTML for best results.
+          </p>
+        </div>
+      )}
+
+      {/* Skipped notice when some pages succeeded */}
+      {skipped > 0 && crawled > 0 && status !== "running" && status !== "pending" && (
+        <div className="py-3 px-4 border border-[#f59e0b]/15 rounded-lg">
+          <p className="text-xs text-[#ccc]">
+            <span className="text-[#f59e0b] font-mono">{skipped}</span> URL{skipped !== 1 ? "s were" : " was"} skipped
+            {" "}(HTTP errors, timeouts, or non-HTML responses).
+          </p>
+        </div>
+      )}
 
       {/* Live Feed */}
       {pages.length > 0 && (
