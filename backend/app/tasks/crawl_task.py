@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import datetime, timezone
 
@@ -95,90 +96,95 @@ async def run_crawl_job(
                 last_modified=page.last_modified,
             )
 
+        # Serialize DB access — asyncpg doesn't support concurrent ops on one connection
+        _db_lock = asyncio.Lock()
+
         async def on_page_skipped(
             url: str, depth: int, reason: str, skipped_count: int
         ):
-            job.pages_skipped = skipped_count
-            await db.commit()
+            async with _db_lock:
+                job.pages_skipped = skipped_count
+                await db.commit()
 
         async def on_page_crawled(
             metadata: PageMetadata, depth: int, crawled: int, found: int
         ):
-            page_now = _utcnow()
-            seen_urls.add(metadata.url)
+            async with _db_lock:
+                page_now = _utcnow()
+                seen_urls.add(metadata.url)
 
-            category = categorize_page(metadata.url, depth)
-            relevance = compute_relevance(metadata.url, depth, category)
-            existing = existing_by_url.get(metadata.url)
+                category = categorize_page(metadata.url, depth)
+                relevance = compute_relevance(metadata.url, depth, category)
+                existing = existing_by_url.get(metadata.url)
 
-            if existing is None:
-                page = Page(
-                    site_id=site_id,
-                    url=metadata.url,
-                    canonical_url=metadata.canonical_url,
-                    title=metadata.title,
-                    description=metadata.description,
-                    content_hash=metadata.content_hash,
-                    metadata_hash=metadata.metadata_hash,
-                    headings_hash=metadata.headings_hash,
-                    text_hash=metadata.text_hash,
-                    links_json=metadata.links,
-                    etag=metadata.etag,
-                    last_modified=metadata.last_modified,
-                    http_status=metadata.http_status,
-                    is_active=True,
-                    first_seen_at=page_now,
-                    last_seen_at=page_now,
-                    last_checked_at=page_now,
-                    category=category,
-                    relevance_score=relevance,
-                    depth=depth,
-                )
-                db.add(page)
-                existing_by_url[metadata.url] = page
-                counts["added"] += 1
-            else:
-                reactivated = not existing.is_active
-                if reactivated:
+                if existing is None:
+                    page = Page(
+                        site_id=site_id,
+                        url=metadata.url,
+                        canonical_url=metadata.canonical_url,
+                        title=metadata.title,
+                        description=metadata.description,
+                        content_hash=metadata.content_hash,
+                        metadata_hash=metadata.metadata_hash,
+                        headings_hash=metadata.headings_hash,
+                        text_hash=metadata.text_hash,
+                        links_json=metadata.links,
+                        etag=metadata.etag,
+                        last_modified=metadata.last_modified,
+                        http_status=metadata.http_status,
+                        is_active=True,
+                        first_seen_at=page_now,
+                        last_seen_at=page_now,
+                        last_checked_at=page_now,
+                        category=category,
+                        relevance_score=relevance,
+                        depth=depth,
+                    )
+                    db.add(page)
+                    existing_by_url[metadata.url] = page
                     counts["added"] += 1
-
-                if metadata.not_modified:
-                    if not reactivated:
-                        counts["unchanged"] += 1
-                    existing.http_status = 304
                 else:
-                    if not reactivated and _has_meaningful_change(existing, metadata):
-                        counts["updated"] += 1
-                    else:
+                    reactivated = not existing.is_active
+                    if reactivated:
+                        counts["added"] += 1
+
+                    if metadata.not_modified:
                         if not reactivated:
                             counts["unchanged"] += 1
-                    existing.title = metadata.title
-                    existing.description = metadata.description
-                    existing.content_hash = metadata.content_hash
-                    existing.metadata_hash = metadata.metadata_hash
-                    existing.headings_hash = metadata.headings_hash
-                    existing.text_hash = metadata.text_hash
-                    existing.links_json = metadata.links
-                    existing.canonical_url = metadata.canonical_url
-                    existing.http_status = metadata.http_status
+                        existing.http_status = 304
+                    else:
+                        if not reactivated and _has_meaningful_change(existing, metadata):
+                            counts["updated"] += 1
+                        else:
+                            if not reactivated:
+                                counts["unchanged"] += 1
+                        existing.title = metadata.title
+                        existing.description = metadata.description
+                        existing.content_hash = metadata.content_hash
+                        existing.metadata_hash = metadata.metadata_hash
+                        existing.headings_hash = metadata.headings_hash
+                        existing.text_hash = metadata.text_hash
+                        existing.links_json = metadata.links
+                        existing.canonical_url = metadata.canonical_url
+                        existing.http_status = metadata.http_status
 
-                existing.category = category
-                existing.relevance_score = relevance
-                existing.depth = depth
-                existing.etag = metadata.etag or existing.etag
-                existing.last_modified = metadata.last_modified or existing.last_modified
-                existing.last_seen_at = page_now
-                existing.last_checked_at = page_now
-                existing.is_active = True
+                    existing.category = category
+                    existing.relevance_score = relevance
+                    existing.depth = depth
+                    existing.etag = metadata.etag or existing.etag
+                    existing.last_modified = metadata.last_modified or existing.last_modified
+                    existing.last_seen_at = page_now
+                    existing.last_checked_at = page_now
+                    existing.is_active = True
 
-            pages_changed = counts["added"] + counts["updated"]
-            job.pages_crawled = crawled
-            job.pages_found = found
-            job.pages_changed = pages_changed
-            job.pages_added = counts["added"]
-            job.pages_updated = counts["updated"]
-            job.pages_unchanged = counts["unchanged"]
-            await db.commit()
+                pages_changed = counts["added"] + counts["updated"]
+                job.pages_crawled = crawled
+                job.pages_found = found
+                job.pages_changed = pages_changed
+                job.pages_added = counts["added"]
+                job.pages_updated = counts["updated"]
+                job.pages_unchanged = counts["unchanged"]
+                await db.commit()
 
         crawler_kwargs: dict = {}
         if max_depth is not None:
