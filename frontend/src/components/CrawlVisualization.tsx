@@ -161,7 +161,7 @@ export default function CrawlVisualization({
   const found = progress?.pages_found ?? job.pages_found;
   const crawled = progress?.pages_crawled ?? job.pages_crawled;
   const changed = progress?.pages_changed ?? job.pages_changed;
-  const maxPages = progress?.max_pages ?? 200;
+  const maxPages = progress?.max_pages ?? job.max_pages;
   const pct = maxPages > 0 ? Math.min(Math.round((crawled / maxPages) * 100), 100) : 0;
   const status = isComplete
     ? "completed"

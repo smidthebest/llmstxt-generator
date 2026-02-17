@@ -124,6 +124,7 @@ async def heartbeat_task(
         .where(CrawlTask.id == task_id)
         .where(CrawlTask.lease_owner == worker_id)
         .where(CrawlTask.status == RUNNING_STATUS)
+        .with_for_update(skip_locked=True)
     )
     task = result.scalar_one_or_none()
     if not task:
@@ -139,6 +140,8 @@ async def complete_task(db: AsyncSession, *, task_id: int, worker_id: str) -> bo
         select(CrawlTask)
         .where(CrawlTask.id == task_id)
         .where(CrawlTask.lease_owner == worker_id)
+        .where(CrawlTask.status == RUNNING_STATUS)
+        .with_for_update(skip_locked=True)
     )
     task = result.scalar_one_or_none()
     if not task:
@@ -162,6 +165,8 @@ async def fail_task(
         select(CrawlTask)
         .where(CrawlTask.id == task_id)
         .where(CrawlTask.lease_owner == worker_id)
+        .where(CrawlTask.status == RUNNING_STATUS)
+        .with_for_update(skip_locked=True)
     )
     task = result.scalar_one_or_none()
     if not task:
@@ -190,6 +195,7 @@ async def recover_expired_running_tasks(db: AsyncSession) -> int:
         .where(CrawlTask.status == RUNNING_STATUS)
         .where(CrawlTask.leased_until.is_not(None))
         .where(CrawlTask.leased_until < now)
+        .with_for_update(skip_locked=True)
     )
     stale = result.scalars().all()
     if not stale:

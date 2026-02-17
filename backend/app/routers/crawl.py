@@ -34,6 +34,7 @@ async def start_crawl(
         db,
         site_id,
         job.id,
+        idempotency_key=f"crawl-job-{job.id}",
         payload_json={
             "max_depth": config.max_depth,
             "max_pages": config.max_pages,
@@ -85,7 +86,7 @@ async def stream_crawl_events(
                         "pages_found": job.pages_found,
                         "pages_crawled": job.pages_crawled,
                         "pages_changed": job.pages_changed,
-                        "max_pages": max(job.pages_crawled, 1),
+                        "max_pages": job.max_pages,
                     }
                 )
                 + "\n\n"
@@ -159,7 +160,7 @@ async def stream_crawl_events(
                     "pages_found": current_job.pages_found,
                     "pages_crawled": current_job.pages_crawled,
                     "pages_changed": current_job.pages_changed,
-                    "max_pages": max(current_job.pages_crawled, 1),
+                    "max_pages": current_job.max_pages,
                 }
                 last_progress = current_progress
 

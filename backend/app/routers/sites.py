@@ -31,6 +31,7 @@ async def create_site(body: SiteCreate, db: AsyncSession = Depends(get_db)):
             db,
             existing.id,
             job.id,
+            idempotency_key=f"crawl-job-{job.id}",
             payload_json={
                 "max_depth": body.max_depth,
                 "max_pages": body.max_pages,
@@ -53,6 +54,7 @@ async def create_site(body: SiteCreate, db: AsyncSession = Depends(get_db)):
         db,
         site.id,
         job.id,
+        idempotency_key=f"crawl-job-{job.id}",
         payload_json={
             "max_depth": body.max_depth,
             "max_pages": body.max_pages,

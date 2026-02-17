@@ -15,6 +15,7 @@ class CrawlJobResponse(BaseModel):
     pages_found: int
     pages_crawled: int
     pages_changed: int
+    max_pages: int
     error_message: str | None
     created_at: datetime
     updated_at: datetime

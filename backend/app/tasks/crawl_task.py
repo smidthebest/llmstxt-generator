@@ -38,6 +38,7 @@ async def run_crawl_job(
         await db.refresh(job)
 
     job.status = "running"
+    job.max_pages = max_pages if max_pages is not None else settings.max_crawl_pages
     await db.commit()
 
     try:

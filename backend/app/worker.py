@@ -111,9 +111,8 @@ async def process_task(task_id: int, worker_id: str) -> None:
             if task and task.crawl_job_id:
                 job = await db.get(CrawlJob, task.crawl_job_id)
                 if job:
-                    # Keep UI semantics stable while retry is pending.
                     job.status = "pending"
-                    job.error_message = None
+                    job.error_message = f"Retrying (attempt {task.attempt_count}/{task.max_attempts}): {failure_error[:200]}"
                     await db.commit()
 
             logger.warning(
