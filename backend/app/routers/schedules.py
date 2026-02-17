@@ -49,9 +49,13 @@ async def upsert_schedule(
     await db.refresh(schedule)
 
     if body.is_active:
-        add_schedule(site_id, body.cron_expression)
+        next_run = add_schedule(site_id, body.cron_expression)
+        schedule.next_run_at = next_run
     else:
         remove_schedule(site_id)
+        schedule.next_run_at = None
+    await db.commit()
+    await db.refresh(schedule)
 
     return schedule
 

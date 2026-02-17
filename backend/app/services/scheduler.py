@@ -27,17 +27,20 @@ async def scheduled_crawl(site_id: int):
         schedule = result.scalar_one_or_none()
         if schedule:
             schedule.last_run_at = datetime.now(timezone.utc)
+            apscheduler_job = scheduler.get_job(f"crawl_site_{site_id}")
+            if apscheduler_job:
+                schedule.next_run_at = apscheduler_job.next_run_time
             await db.commit()
 
 
 def add_schedule(site_id: int, cron_expression: str):
-    """Add or replace a schedule for a site."""
+    """Add or replace a schedule for a site. Returns next_run_time."""
     job_id = f"crawl_site_{site_id}"
     if scheduler.get_job(job_id):
         scheduler.remove_job(job_id)
 
     trigger = CronTrigger.from_crontab(cron_expression)
-    scheduler.add_job(
+    job = scheduler.add_job(
         scheduled_crawl,
         trigger=trigger,
         id=job_id,
@@ -45,6 +48,7 @@ def add_schedule(site_id: int, cron_expression: str):
         replace_existing=True,
     )
     logger.info(f"Scheduled crawl for site {site_id} with cron: {cron_expression}")
+    return job.next_run_time
 
 
 def remove_schedule(site_id: int):

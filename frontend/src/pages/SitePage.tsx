@@ -6,9 +6,11 @@ import {
   listCrawlJobs,
   getLlmsTxt,
   startCrawl,
+  CrawlConfig,
 } from "../api/client";
 import { useCrawlStatus } from "../hooks/useCrawlStatus";
-import CrawlProgress from "../components/CrawlProgress";
+import CrawlVisualization from "../components/CrawlVisualization";
+import CrawlConfigPanel from "../components/CrawlConfigPanel";
 import LlmsTxtPreview from "../components/LlmsTxtPreview";
 import LlmsTxtEditor from "../components/LlmsTxtEditor";
 import ScheduleConfig from "../components/ScheduleConfig";
@@ -29,6 +31,7 @@ export default function SitePage() {
   const [activeJobId, setActiveJobId] = useState<number | null>(null);
   const [editing, setEditing] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [crawlConfig, setCrawlConfig] = useState<CrawlConfig>({});
 
   const { data: site } = useQuery({
     queryKey: ["site", siteId],
@@ -64,7 +67,7 @@ export default function SitePage() {
   });
 
   const recrawlMutation = useMutation({
-    mutationFn: () => startCrawl(siteId),
+    mutationFn: () => startCrawl(siteId, crawlConfig),
     onSuccess: (job) => setActiveJobId(job.id),
   });
 
@@ -139,6 +142,11 @@ export default function SitePage() {
         </button>
       </div>
 
+      {/* Advanced Config */}
+      <div className="mb-6">
+        <CrawlConfigPanel onChange={setCrawlConfig} />
+      </div>
+
       {/* Tabs */}
       <div className="flex gap-6 mb-8 border-b border-[#1a1a1a]">
         {TABS.map((t) => (
@@ -156,65 +164,63 @@ export default function SitePage() {
         ))}
       </div>
 
-      {/* Content */}
-      <div key={tab} className="anim-enter">
-        {tab === "progress" && (
-          <CrawlProgress job={crawlJob} isLoading={crawlLoading} />
-        )}
+      {/* Content — keep progress tab mounted to preserve SSE state */}
+      <div className={tab === "progress" ? "" : "hidden"}>
+        <CrawlVisualization siteId={siteId} job={crawlJob} isLoading={crawlLoading} />
+      </div>
 
-        {tab === "result" && (
-          <div>
-            {llmsTxt ? (
-              <>
-                <div className="flex items-center gap-3 mb-5">
-                  <button
-                    onClick={() => setEditing(!editing)}
-                    className={`text-xs tracking-widest uppercase px-3 py-1.5 rounded-md border transition-all ${
-                      editing
-                        ? "bg-[#f0f0f0] text-black border-[#f0f0f0]"
-                        : "border-[#333] text-[#888] hover:text-[#f0f0f0] hover:border-[#555]"
-                    }`}
-                  >
-                    {editing ? "Preview" : "Edit"}
-                  </button>
-                  <button
-                    onClick={copyToClipboard}
-                    className="text-xs tracking-widest uppercase px-3 py-1.5 rounded-md border border-[#333] text-[#888] hover:text-[#f0f0f0] hover:border-[#555] transition-all"
-                  >
-                    {copied ? "\u2713 Copied" : "Copy"}
-                  </button>
-                  <a
-                    href={`/api/sites/${siteId}/llms-txt/download`}
-                    className="text-xs tracking-widest uppercase px-3 py-1.5 rounded-md border border-[#333] text-[#888] hover:text-[#f0f0f0] hover:border-[#555] transition-all"
-                  >
-                    Download
-                  </a>
-                </div>
-                {editing ? (
-                  <LlmsTxtEditor
-                    siteId={siteId}
-                    initialContent={llmsTxt.content}
-                  />
-                ) : (
-                  <LlmsTxtPreview content={llmsTxt.content} />
-                )}
-              </>
-            ) : crawlJob?.status === "completed" ? (
-              <div className="text-center py-20">
-                <div className="inline-block w-5 h-5 border-2 border-[#333] border-t-[#7b8ff5] rounded-full animate-spin mb-4" />
-                <p className="text-[#666] text-sm">Generating with AI...</p>
-              </div>
+      <div className={tab === "result" ? "anim-enter" : "hidden"}>
+        {llmsTxt ? (
+          <>
+            <div className="flex items-center gap-3 mb-5">
+              <button
+                onClick={() => setEditing(!editing)}
+                className={`text-xs tracking-widest uppercase px-3 py-1.5 rounded-md border transition-all ${
+                  editing
+                    ? "bg-[#f0f0f0] text-black border-[#f0f0f0]"
+                    : "border-[#333] text-[#888] hover:text-[#f0f0f0] hover:border-[#555]"
+                }`}
+              >
+                {editing ? "Preview" : "Edit"}
+              </button>
+              <button
+                onClick={copyToClipboard}
+                className="text-xs tracking-widest uppercase px-3 py-1.5 rounded-md border border-[#333] text-[#888] hover:text-[#f0f0f0] hover:border-[#555] transition-all"
+              >
+                {copied ? "\u2713 Copied" : "Copy"}
+              </button>
+              <a
+                href={`/api/sites/${siteId}/llms-txt/download`}
+                className="text-xs tracking-widest uppercase px-3 py-1.5 rounded-md border border-[#333] text-[#888] hover:text-[#f0f0f0] hover:border-[#555] transition-all"
+              >
+                Download
+              </a>
+            </div>
+            {editing ? (
+              <LlmsTxtEditor
+                siteId={siteId}
+                initialContent={llmsTxt.content}
+              />
             ) : (
-              <div className="text-center py-20">
-                <p className="text-[#555] text-sm">
-                  No output yet. Run a crawl first.
-                </p>
-              </div>
+              <LlmsTxtPreview content={llmsTxt.content} />
             )}
+          </>
+        ) : crawlJob?.status === "completed" ? (
+          <div className="text-center py-20">
+            <div className="inline-block w-5 h-5 border-2 border-[#333] border-t-[#7b8ff5] rounded-full animate-spin mb-4" />
+            <p className="text-[#666] text-sm">Generating with AI...</p>
+          </div>
+        ) : (
+          <div className="text-center py-20">
+            <p className="text-[#555] text-sm">
+              No output yet. Run a crawl first.
+            </p>
           </div>
         )}
+      </div>
 
-        {tab === "schedule" && <ScheduleConfig siteId={siteId} />}
+      <div className={tab === "schedule" ? "anim-enter" : "hidden"}>
+        <ScheduleConfig siteId={siteId} />
       </div>
     </div>
   );

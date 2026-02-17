@@ -1,16 +1,18 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { createSite } from "../api/client";
+import { createSite, CrawlConfig } from "../api/client";
+import CrawlConfigPanel from "./CrawlConfigPanel";
 
 export default function UrlInput() {
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
+  const [crawlConfig, setCrawlConfig] = useState<CrawlConfig>({});
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   const mutation = useMutation({
-    mutationFn: (u: string) => createSite(u),
+    mutationFn: (u: string) => createSite(u, crawlConfig),
     onSuccess: (site) => {
       queryClient.invalidateQueries({ queryKey: ["sites"] });
       navigate(`/sites/${site.id}`);
@@ -47,6 +49,9 @@ export default function UrlInput() {
         >
           {mutation.isPending ? "..." : "Generate"}
         </button>
+      </div>
+      <div className="mt-3">
+        <CrawlConfigPanel onChange={setCrawlConfig} />
       </div>
       {error && (
         <p className="mt-2 text-red-400/80 text-xs anim-enter">{error}</p>

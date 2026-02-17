@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import async_session, get_db
 from app.models import CrawlJob, Site
 from app.schemas import SiteCreate, SiteListResponse, SiteResponse
-from app.schemas.crawl import CrawlJobResponse
 from app.tasks.crawl_task import run_crawl_job
 
 router = APIRouter(prefix="/api/sites", tags=["sites"])
@@ -19,8 +18,8 @@ async def create_site(body: SiteCreate, db: AsyncSession = Depends(get_db)):
     url = str(body.url).rstrip("/")
     domain = urlparse(url).netloc
 
-    # Check if site already exists
-    result = await db.execute(select(Site).where(Site.domain == domain))
+    # Check if site already exists (match on full URL, not just domain)
+    result = await db.execute(select(Site).where(Site.url == url))
     existing = result.scalar_one_or_none()
     if existing:
         # Trigger a new crawl and return existing site
@@ -31,7 +30,13 @@ async def create_site(body: SiteCreate, db: AsyncSession = Depends(get_db)):
 
         async def _crawl():
             async with async_session() as session:
-                await run_crawl_job(session, existing.id, job.id)
+                await run_crawl_job(
+                    session,
+                    existing.id,
+                    job.id,
+                    max_depth=body.max_depth,
+                    max_pages=body.max_pages,
+                )
 
         asyncio.create_task(_crawl())
         return existing
@@ -49,7 +54,13 @@ async def create_site(body: SiteCreate, db: AsyncSession = Depends(get_db)):
 
     async def _crawl():
         async with async_session() as session:
-            await run_crawl_job(session, site.id, job.id)
+            await run_crawl_job(
+                session,
+                site.id,
+                job.id,
+                max_depth=body.max_depth,
+                max_pages=body.max_pages,
+            )
 
     asyncio.create_task(_crawl())
     return site

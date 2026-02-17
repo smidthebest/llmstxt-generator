@@ -54,9 +54,14 @@ export interface Schedule {
   created_at: string;
 }
 
+export interface CrawlConfig {
+  max_depth?: number;
+  max_pages?: number;
+}
+
 // Sites
-export const createSite = (url: string) =>
-  api.post<Site>("/sites", { url }).then((r) => r.data);
+export const createSite = (url: string, config?: CrawlConfig) =>
+  api.post<Site>("/sites", { url, ...config }).then((r) => r.data);
 
 export const listSites = () =>
   api.get<{ sites: Site[] }>("/sites").then((r) => r.data.sites);
@@ -67,8 +72,8 @@ export const getSite = (id: number) =>
 export const deleteSite = (id: number) => api.delete(`/sites/${id}`);
 
 // Crawl
-export const startCrawl = (siteId: number) =>
-  api.post<CrawlJob>(`/sites/${siteId}/crawl`).then((r) => r.data);
+export const startCrawl = (siteId: number, config?: CrawlConfig) =>
+  api.post<CrawlJob>(`/sites/${siteId}/crawl`, config || {}).then((r) => r.data);
 
 export const getCrawlStatus = (siteId: number, jobId: number) =>
   api.get<CrawlJob>(`/sites/${siteId}/crawl/${jobId}`).then((r) => r.data);

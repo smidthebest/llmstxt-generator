@@ -70,7 +70,7 @@ class Crawler:
 
                 self.results.append((metadata, depth))
                 if self.on_page_crawled:
-                    await self.on_page_crawled(len(self.results), len(self.visited))
+                    await self.on_page_crawled(metadata, depth, len(self.results), len(self.visited))
 
                 if depth < self.max_depth:
                     for link in metadata.links:
