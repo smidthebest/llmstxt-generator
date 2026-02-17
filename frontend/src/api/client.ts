@@ -2,6 +2,14 @@ import axios from "axios";
 
 const api = axios.create({ baseURL: "/api" });
 
+// Bust Safari's aggressive HTTP cache by making every GET URL unique
+api.interceptors.request.use((config) => {
+  if (config.method === "get") {
+    config.params = { ...config.params, _t: Date.now() };
+  }
+  return config;
+});
+
 export interface Site {
   id: number;
   url: string;

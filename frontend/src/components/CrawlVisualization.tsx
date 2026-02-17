@@ -128,21 +128,26 @@ export default function CrawlVisualization({
   job,
   isLoading,
 }: Props) {
-  const isActive =
-    job?.status === "running" || job?.status === "pending";
+  // Always enable SSE when there's a valid job.
+  // Completed/failed jobs get a one-shot replay of stored pages, then close.
+  // This prevents the race where polled status flips to "completed" before
+  // the live SSE stream finishes, and ensures pages are visible when
+  // navigating to an already-completed crawl.
   const { pages, progress, isComplete, error } = useCrawlStream(
     siteId,
     job?.id ?? null,
-    isActive
+    !!job
   );
 
   const listRef = useRef<HTMLDivElement>(null);
 
+  // Auto-scroll only during live crawls, not during replay of completed jobs
   useEffect(() => {
-    if (listRef.current) {
+    const isRunning = job?.status === "running" || job?.status === "pending";
+    if (listRef.current && isRunning) {
       listRef.current.scrollTop = listRef.current.scrollHeight;
     }
-  }, [pages.length]);
+  }, [pages.length, job?.status]);
 
   if (isLoading || !job) {
     return (

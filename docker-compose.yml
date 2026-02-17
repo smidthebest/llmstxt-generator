@@ -43,7 +43,9 @@ services:
       LLMSTXT_OPENAI_KEY: ${LLMSTXT_OPENAI_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-gpt-5.2}
       RUN_SCHEDULER: "true"
-      WORKER_ID: worker-1
+      WORKER_MAX_CONCURRENT_TASKS: "3"
+    deploy:
+      replicas: 2
     depends_on:
       db:
         condition: service_healthy

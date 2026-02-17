@@ -127,12 +127,26 @@ async def process_task(task_id: int, worker_id: str) -> None:
 
 
 async def worker_loop(stop_event: asyncio.Event, worker_id: str) -> None:
-    logger.info("Worker started with id=%s", worker_id)
+    max_concurrent = settings.worker_max_concurrent_tasks
+    logger.info(
+        "Worker started with id=%s max_concurrent=%s", worker_id, max_concurrent
+    )
     poll_interval = settings.task_poll_interval_ms / 1000
     scheduler_sync_interval = settings.scheduler_sync_interval_seconds
     next_scheduler_sync = 0.0
 
+    active_tasks: dict[int, asyncio.Task] = {}  # task_id -> asyncio.Task
+
     while not stop_event.is_set():
+        # Clean up finished tasks
+        finished = [tid for tid, t in active_tasks.items() if t.done()]
+        for tid in finished:
+            task = active_tasks.pop(tid)
+            if task.exception():
+                logger.error(
+                    "Task=%s raised unhandled exception: %s", tid, task.exception()
+                )
+
         now = asyncio.get_running_loop().time()
         if settings.run_scheduler and now >= next_scheduler_sync:
             await sync_schedules_from_db()
@@ -145,20 +159,31 @@ async def worker_loop(stop_event: asyncio.Event, worker_id: str) -> None:
                     "Recovered %s expired leased task(s) back to failed", recovered
                 )
 
-            task = await claim_next_task(
-                db,
-                worker_id=worker_id,
-                lease_seconds=settings.task_lease_seconds,
+        # Claim tasks up to max concurrency
+        while len(active_tasks) < max_concurrent:
+            async with async_session() as db:
+                task = await claim_next_task(
+                    db,
+                    worker_id=worker_id,
+                    lease_seconds=settings.task_lease_seconds,
+                )
+
+            if not task:
+                break  # no more tasks available
+
+            logger.info(
+                "Dispatching task=%s (active: %s/%s)",
+                task.id,
+                len(active_tasks) + 1,
+                max_concurrent,
             )
+            t = asyncio.create_task(process_task(task.id, worker_id))
+            active_tasks[task.id] = t
 
-        if not task:
-            try:
-                await asyncio.wait_for(stop_event.wait(), timeout=poll_interval)
-            except asyncio.TimeoutError:
-                continue
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=poll_interval)
+        except asyncio.TimeoutError:
             continue
-
-        await process_task(task.id, worker_id)
 
 
 async def main() -> None:
