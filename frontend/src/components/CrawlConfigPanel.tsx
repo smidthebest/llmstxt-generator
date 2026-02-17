@@ -21,11 +21,11 @@ export default function CrawlConfigPanel({ onChange }: Props) {
   };
 
   return (
-    <div className="border border-[#1a1a1a] rounded-lg overflow-hidden">
+    <div className="border border-[#383838] rounded-lg overflow-hidden">
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between px-4 py-2 text-[10px] tracking-[0.15em] uppercase text-[#555] hover:text-[#999] transition-colors"
+        className="w-full flex items-center justify-between px-4 py-2 text-[10px] tracking-[0.15em] uppercase text-[#ccc] hover:text-[#f0f0f0] transition-colors"
       >
         <span>Advanced Settings</span>
         <span
@@ -38,7 +38,7 @@ export default function CrawlConfigPanel({ onChange }: Props) {
         <div className="px-4 pb-4 pt-1 space-y-4 anim-enter">
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="text-[10px] tracking-[0.15em] uppercase text-[#555]">
+              <label className="text-[10px] tracking-[0.15em] uppercase text-[#ccc]">
                 Max Depth
               </label>
               <span className="text-xs font-mono text-[#7b8ff5]">
@@ -51,16 +51,16 @@ export default function CrawlConfigPanel({ onChange }: Props) {
               max={5}
               value={maxDepth}
               onChange={(e) => handleDepth(Number(e.target.value))}
-              className="w-full h-1 bg-[#1a1a1a] rounded-full appearance-none cursor-pointer accent-[#7b8ff5]"
+              className="w-full h-1 bg-[#222] rounded-full appearance-none cursor-pointer accent-[#7b8ff5]"
             />
-            <div className="flex justify-between text-[9px] text-[#333] mt-0.5">
+            <div className="flex justify-between text-[9px] text-[#aaa] mt-0.5">
               <span>1 (shallow)</span>
               <span>5 (deep)</span>
             </div>
           </div>
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="text-[10px] tracking-[0.15em] uppercase text-[#555]">
+              <label className="text-[10px] tracking-[0.15em] uppercase text-[#ccc]">
                 Max Pages
               </label>
               <span className="text-xs font-mono text-[#7b8ff5]">
@@ -74,9 +74,9 @@ export default function CrawlConfigPanel({ onChange }: Props) {
               step={50}
               value={maxPages}
               onChange={(e) => handlePages(Number(e.target.value))}
-              className="w-full h-1 bg-[#1a1a1a] rounded-full appearance-none cursor-pointer accent-[#7b8ff5]"
+              className="w-full h-1 bg-[#222] rounded-full appearance-none cursor-pointer accent-[#7b8ff5]"
             />
-            <div className="flex justify-between text-[9px] text-[#333] mt-0.5">
+            <div className="flex justify-between text-[9px] text-[#aaa] mt-0.5">
               <span>50</span>
               <span>500</span>
             </div>

@@ -26,7 +26,7 @@ export default function LlmsTxtEditor({ siteId, initialContent }: Props) {
       <textarea
         value={content}
         onChange={(e) => setContent(e.target.value)}
-        className="w-full h-[500px] p-5 font-mono text-sm bg-transparent border border-[#1a1a1a] rounded-lg text-[#ccc] placeholder-[#444] focus:outline-none focus:border-[#7b8ff5]/50 transition-colors resize-y leading-relaxed"
+        className="w-full h-[500px] p-5 font-mono text-sm bg-transparent border border-[#383838] rounded-lg text-[#ccc] placeholder-[#444] focus:outline-none focus:border-[#7b8ff5]/50 transition-colors resize-y leading-relaxed"
         spellCheck={false}
       />
       <div className="flex items-center gap-3">

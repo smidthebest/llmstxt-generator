@@ -15,7 +15,7 @@ export default function HomePage() {
           </span>
           <Link
             to="/history"
-            className="text-xs tracking-widest uppercase text-[#666] hover:text-[#f0f0f0] transition-colors"
+            className="text-xs tracking-widest uppercase text-[#ddd] hover:text-[#f0f0f0] transition-colors"
           >
             Sites
           </Link>
@@ -28,7 +28,7 @@ export default function HomePage() {
           <h1 className="font-display text-6xl sm:text-7xl font-bold tracking-tight mb-3 text-[#f0f0f0]">
             llms.txt
           </h1>
-          <p className="text-[#666] text-sm tracking-wide">
+          <p className="text-[#ddd] text-sm tracking-wide">
             Crawl any website. Generate a structured llms.txt file.
           </p>
         </div>
@@ -42,7 +42,7 @@ export default function HomePage() {
             className="mt-20 w-full max-w-lg anim-enter"
             style={{ animationDelay: "300ms" }}
           >
-            <div className="text-[10px] tracking-[0.2em] uppercase text-[#555] mb-4">
+            <div className="text-[10px] tracking-[0.2em] uppercase text-[#ccc] mb-4">
               Recent
             </div>
             <div className="space-y-px stagger">
@@ -57,12 +57,12 @@ export default function HomePage() {
                       {site.domain}
                     </div>
                     {site.title && (
-                      <div className="text-xs text-[#555] truncate mt-0.5">
+                      <div className="text-xs text-[#ccc] truncate mt-0.5">
                         {site.title}
                       </div>
                     )}
                   </div>
-                  <span className="text-[#333] group-hover:text-[#7b8ff5] transition-colors ml-4 shrink-0">
+                  <span className="text-[#aaa] group-hover:text-[#7b8ff5] transition-colors ml-4 shrink-0">
                     &rarr;
                   </span>
                 </Link>

@@ -107,7 +107,7 @@ export default function SitePage() {
       {/* Back */}
       <Link
         to="/"
-        className="inline-flex items-center gap-1 text-xs tracking-widest uppercase text-[#555] hover:text-[#ccc] transition-colors mb-6"
+        className="inline-flex items-center gap-1 text-xs tracking-widest uppercase text-[#ccc] hover:text-[#f0f0f0] transition-colors mb-6"
       >
         &larr; Back
       </Link>
@@ -122,11 +122,11 @@ export default function SitePage() {
             const llmsDesc = llmsTxt?.content?.match(/^> (.+)$/m)?.[1];
             const desc = llmsDesc || site?.description;
             return desc ? (
-              <p className="text-[#666] text-sm mt-2 max-w-xl">{desc}</p>
+              <p className="text-[#ddd] text-sm mt-2 max-w-xl">{desc}</p>
             ) : null;
           })()}
           {site && (
-            <span className="inline-block text-[10px] font-mono text-[#444] mt-2 tracking-wider">
+            <span className="inline-block text-[10px] font-mono text-[#bbb] mt-2 tracking-wider">
               {site.url}
             </span>
           )}
@@ -136,7 +136,7 @@ export default function SitePage() {
           disabled={
             recrawlMutation.isPending || crawlJob?.status === "running"
           }
-          className="text-xs tracking-widest uppercase text-[#666] hover:text-[#f0f0f0] border border-[#333] hover:border-[#555] px-3 py-1.5 rounded-md disabled:opacity-30 disabled:cursor-not-allowed transition-all shrink-0"
+          className="text-xs tracking-widest uppercase text-[#ddd] hover:text-[#f0f0f0] border border-[#444] hover:border-[#555] px-3 py-1.5 rounded-md disabled:opacity-30 disabled:cursor-not-allowed transition-all shrink-0"
         >
           {crawlJob?.status === "running" ? "Crawling..." : "Re-crawl"}
         </button>
@@ -148,7 +148,7 @@ export default function SitePage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-6 mb-8 border-b border-[#1a1a1a]">
+      <div className="flex gap-6 mb-8 border-b border-[#383838]">
         {TABS.map((t) => (
           <button
             key={t.key}
@@ -156,7 +156,7 @@ export default function SitePage() {
             className={`pb-2.5 text-xs tracking-widest uppercase transition-colors border-b-2 -mb-px ${
               tab === t.key
                 ? "border-[#7b8ff5] text-[#f0f0f0]"
-                : "border-transparent text-[#555] hover:text-[#999]"
+                : "border-transparent text-[#ccc] hover:text-[#f0f0f0]"
             }`}
           >
             {t.label}
@@ -178,20 +178,20 @@ export default function SitePage() {
                 className={`text-xs tracking-widest uppercase px-3 py-1.5 rounded-md border transition-all ${
                   editing
                     ? "bg-[#f0f0f0] text-black border-[#f0f0f0]"
-                    : "border-[#333] text-[#888] hover:text-[#f0f0f0] hover:border-[#555]"
+                    : "border-[#444] text-[#ccc] hover:text-[#f0f0f0] hover:border-[#555]"
                 }`}
               >
                 {editing ? "Preview" : "Edit"}
               </button>
               <button
                 onClick={copyToClipboard}
-                className="text-xs tracking-widest uppercase px-3 py-1.5 rounded-md border border-[#333] text-[#888] hover:text-[#f0f0f0] hover:border-[#555] transition-all"
+                className="text-xs tracking-widest uppercase px-3 py-1.5 rounded-md border border-[#444] text-[#ccc] hover:text-[#f0f0f0] hover:border-[#555] transition-all"
               >
                 {copied ? "\u2713 Copied" : "Copy"}
               </button>
               <a
                 href={`/api/sites/${siteId}/llms-txt/download`}
-                className="text-xs tracking-widest uppercase px-3 py-1.5 rounded-md border border-[#333] text-[#888] hover:text-[#f0f0f0] hover:border-[#555] transition-all"
+                className="text-xs tracking-widest uppercase px-3 py-1.5 rounded-md border border-[#444] text-[#ccc] hover:text-[#f0f0f0] hover:border-[#555] transition-all"
               >
                 Download
               </a>
@@ -207,12 +207,12 @@ export default function SitePage() {
           </>
         ) : crawlJob?.status === "completed" ? (
           <div className="text-center py-20">
-            <div className="inline-block w-5 h-5 border-2 border-[#333] border-t-[#7b8ff5] rounded-full animate-spin mb-4" />
-            <p className="text-[#666] text-sm">Generating with AI...</p>
+            <div className="inline-block w-5 h-5 border-2 border-[#444] border-t-[#7b8ff5] rounded-full animate-spin mb-4" />
+            <p className="text-[#ddd] text-sm">Generating with AI...</p>
           </div>
         ) : (
           <div className="text-center py-20">
-            <p className="text-[#555] text-sm">
+            <p className="text-[#ccc] text-sm">
               No output yet. Run a crawl first.
             </p>
           </div>

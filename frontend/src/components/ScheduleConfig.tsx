@@ -47,7 +47,7 @@ export default function ScheduleConfig({ siteId }: Props) {
 
   return (
     <div className="space-y-5 anim-enter">
-      <h3 className="text-xs tracking-[0.15em] uppercase text-[#888]">
+      <h3 className="text-xs tracking-[0.15em] uppercase text-[#ccc]">
         Monitoring Schedule
       </h3>
 
@@ -56,14 +56,14 @@ export default function ScheduleConfig({ siteId }: Props) {
           <code className="font-mono text-[#ccc]">
             {schedule.cron_expression}
           </code>
-          <span className="flex items-center gap-1.5 text-[#555]">
+          <span className="flex items-center gap-1.5 text-[#ccc]">
             <span
               className={`w-1.5 h-1.5 rounded-full ${schedule.is_active ? "bg-[#4ade80]" : "bg-[#333]"}`}
             />
             {schedule.is_active ? "Active" : "Paused"}
           </span>
           {schedule.last_run_at && (
-            <span className="text-[#444] font-mono">
+            <span className="text-[#bbb] font-mono">
               {new Date(schedule.last_run_at).toLocaleString()}
             </span>
           )}
@@ -74,14 +74,14 @@ export default function ScheduleConfig({ siteId }: Props) {
         <select
           value={frequency}
           onChange={(e) => setFrequency(e.target.value)}
-          className="px-3 py-2 bg-transparent border border-[#333] rounded-md text-sm text-[#ccc] focus:outline-none focus:border-[#555]"
+          className="px-3 py-2 bg-transparent border border-[#444] rounded-md text-sm text-[#ccc] focus:outline-none focus:border-[#555]"
         >
           <option value="daily">Daily</option>
           <option value="weekly">Weekly</option>
           <option value="monthly">Monthly</option>
         </select>
 
-        <label className="relative inline-flex items-center gap-2 cursor-pointer text-xs text-[#888]">
+        <label className="relative inline-flex items-center gap-2 cursor-pointer text-xs text-[#ccc]">
           <div className="relative">
             <input
               type="checkbox"
@@ -108,7 +108,7 @@ export default function ScheduleConfig({ siteId }: Props) {
           <button
             onClick={() => deleteMutation.mutate()}
             disabled={deleteMutation.isPending}
-            className="text-xs tracking-widest uppercase text-[#555] hover:text-red-400/80 transition-colors"
+            className="text-xs tracking-widest uppercase text-[#ccc] hover:text-red-400/80 transition-colors"
           >
             Remove
           </button>

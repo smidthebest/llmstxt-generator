@@ -63,7 +63,7 @@ function PageRow({ page, index }: { page: CrawlPageEvent; index: number }) {
             {page.title || page.url}
           </div>
           {page.title && (
-            <div className="text-[10px] text-[#444] truncate font-mono">
+            <div className="text-[10px] text-[#bbb] truncate font-mono">
               {new URL(page.url).pathname}
             </div>
           )}
@@ -81,7 +81,7 @@ function PageRow({ page, index }: { page: CrawlPageEvent; index: number }) {
         </span>
 
         <span
-          className={`text-[10px] text-[#444] transition-transform duration-150 shrink-0 ${
+          className={`text-[10px] text-[#bbb] transition-transform duration-150 shrink-0 ${
             expanded ? "rotate-180" : ""
           }`}
         >
@@ -91,15 +91,15 @@ function PageRow({ page, index }: { page: CrawlPageEvent; index: number }) {
 
       {expanded && (
         <div className="px-2 pb-2 pl-11 anim-enter">
-          <div className="border border-[#1a1a1a] rounded-md p-3 space-y-2">
+          <div className="border border-[#383838] rounded-md p-3 space-y-2">
             {page.description && (
-              <p className="text-[11px] text-[#888] leading-relaxed">
+              <p className="text-[11px] text-[#ccc] leading-relaxed">
                 {page.description.length > 300
                   ? page.description.slice(0, 300) + "..."
                   : page.description}
               </p>
             )}
-            <div className="flex items-center gap-4 text-[10px] text-[#555]">
+            <div className="flex items-center gap-4 text-[10px] text-[#ccc]">
               <span className="font-mono">
                 depth: {page.depth}
               </span>
@@ -199,7 +199,7 @@ export default function CrawlVisualization({
           <span className="text-xs font-mono text-[#7b8ff5]">{pct}%</span>
         )}
         {status === "running" && pages.length > 0 && (
-          <span className="text-[10px] text-[#444] font-mono">
+          <span className="text-[10px] text-[#bbb] font-mono">
             {pages[pages.length - 1].url.replace(/https?:\/\//, "").slice(0, 50)}
           </span>
         )}
@@ -207,7 +207,7 @@ export default function CrawlVisualization({
 
       {/* Progress bar */}
       {(status === "running" || status === "pending") && (
-        <div className="w-full h-px bg-[#1a1a1a] rounded-full overflow-hidden">
+        <div className="w-full h-px bg-[#222] rounded-full overflow-hidden">
           {status === "running" ? (
             <div
               className="h-full rounded-full bar-anim transition-all duration-500"
@@ -228,7 +228,7 @@ export default function CrawlVisualization({
         ].map((s) => (
           <div key={s.label} className="py-3">
             <div className="text-xl font-mono text-[#f0f0f0]">{s.value}</div>
-            <div className="text-[10px] tracking-[0.15em] uppercase text-[#555] mt-1">
+            <div className="text-[10px] tracking-[0.15em] uppercase text-[#ccc] mt-1">
               {s.label}
             </div>
           </div>
@@ -239,25 +239,25 @@ export default function CrawlVisualization({
       {pages.length > 0 && (
         <div>
           <div className="flex items-center gap-2 mb-2">
-            <div className="text-[10px] tracking-[0.2em] uppercase text-[#555]">
+            <div className="text-[10px] tracking-[0.2em] uppercase text-[#ccc]">
               {status === "running" ? "Live Feed" : "Crawled Pages"}
             </div>
             {status === "running" && (
               <div className="w-1 h-1 rounded-full bg-[#7b8ff5] animate-pulse" />
             )}
-            <div className="text-[10px] text-[#333] font-mono ml-auto">
+            <div className="text-[10px] text-[#aaa] font-mono ml-auto">
               click to expand
             </div>
           </div>
           <div
             ref={listRef}
-            className="max-h-[360px] overflow-y-auto border border-[#1a1a1a] rounded-lg p-1.5 space-y-px"
+            className="max-h-[360px] overflow-y-auto border border-[#383838] rounded-lg p-1.5 space-y-px"
           >
             {pages.map((page, i) => (
               <PageRow key={page.url} page={page} index={i} />
             ))}
           </div>
-          <div className="text-[10px] text-[#333] mt-2 font-mono">
+          <div className="text-[10px] text-[#aaa] mt-2 font-mono">
             {pages.length} pages streamed
           </div>
         </div>

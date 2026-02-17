@@ -6,12 +6,12 @@
   --black: #000000;
   --bg: #050505;
   --surface: #0c0c0c;
-  --border: #1a1a1a;
-  --border-hover: #2a2a2a;
+  --border: #383838;
+  --border-hover: #555;
   --white: #f0f0f0;
-  --silver: #888888;
-  --muted: #555555;
-  --dim: #333333;
+  --silver: #ccc;
+  --muted: #bbb;
+  --dim: #888;
   --accent: #7b8ff5;
   --accent-dim: #5a6bd4;
   --green: #4ade80;
@@ -46,7 +46,7 @@ body {
 
 .anim-enter { animation: enter 0.35s ease-out both; }
 .anim-shimmer {
-  background: linear-gradient(90deg, #111 0%, #1a1a1a 50%, #111 100%);
+  background: linear-gradient(90deg, #151515 0%, #252525 50%, #151515 100%);
   background-size: 200% 100%;
   animation: shimmer 1.5s ease-in-out infinite;
 }

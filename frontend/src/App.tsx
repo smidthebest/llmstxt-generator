@@ -17,14 +17,14 @@ function Layout() {
   return (
     <div className="min-h-screen">
       {!isHome && (
-        <nav className="fixed top-0 left-0 right-0 z-50 bg-black/80 backdrop-blur-md border-b border-[#1a1a1a]">
+        <nav className="fixed top-0 left-0 right-0 z-50 bg-black/80 backdrop-blur-md border-b border-[#383838]">
           <div className="max-w-3xl mx-auto px-6 h-12 flex items-center justify-between">
             <Link to="/" className="font-display text-lg font-bold text-[#f0f0f0]">
               llms.txt
             </Link>
             <Link
               to="/history"
-              className="text-xs tracking-widest uppercase text-[#666] hover:text-[#f0f0f0] transition-colors"
+              className="text-xs tracking-widest uppercase text-[#ddd] hover:text-[#f0f0f0] transition-colors"
             >
               Sites
             </Link>

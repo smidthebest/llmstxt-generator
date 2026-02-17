@@ -26,10 +26,10 @@ export default function HistoryPage() {
 
       {sites && sites.length === 0 && (
         <div className="py-20 text-center">
-          <p className="text-[#555] mb-4">No sites yet.</p>
+          <p className="text-[#ccc] mb-4">No sites yet.</p>
           <Link
             to="/"
-            className="inline-block px-5 py-2 text-sm border border-[#333] text-[#ccc] rounded-lg hover:bg-[#111] hover:border-[#555] transition-all"
+            className="inline-block px-5 py-2 text-sm border border-[#444] text-[#ccc] rounded-lg hover:bg-[#111] hover:border-[#555] transition-all"
           >
             Generate your first llms.txt
           </Link>
@@ -37,25 +37,25 @@ export default function HistoryPage() {
       )}
 
       {sites && sites.length > 0 && (
-        <div className="border-t border-[#1a1a1a]">
+        <div className="border-t border-[#383838]">
           <div className="stagger">
             {sites.map((site) => (
               <div
                 key={site.id}
-                className="flex items-center justify-between py-4 border-b border-[#1a1a1a] group"
+                className="flex items-center justify-between py-4 border-b border-[#383838] group"
               >
                 <Link to={`/sites/${site.id}`} className="flex-1 min-w-0">
                   <span className="text-sm text-[#ccc] group-hover:text-white transition-colors">
                     {site.domain}
                   </span>
                   {site.title && (
-                    <span className="text-xs text-[#555] ml-3 hidden sm:inline">
+                    <span className="text-xs text-[#ccc] ml-3 hidden sm:inline">
                       {site.title}
                     </span>
                   )}
                 </Link>
                 <div className="flex items-center gap-4 ml-4 shrink-0">
-                  <span className="text-[10px] text-[#444] tracking-wider font-mono">
+                  <span className="text-[10px] text-[#bbb] tracking-wider font-mono">
                     {new Date(site.created_at).toLocaleDateString()}
                   </span>
                   <button
@@ -64,7 +64,7 @@ export default function HistoryPage() {
                         deleteMutation.mutate(site.id);
                       }
                     }}
-                    className="text-[10px] tracking-widest uppercase text-[#444] hover:text-red-400 transition-colors"
+                    className="text-[10px] tracking-widest uppercase text-[#bbb] hover:text-red-400 transition-colors"
                   >
                     Delete
                   </button>

@@ -40,7 +40,7 @@ export default function UrlInput() {
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           placeholder="https://example.com"
-          className="flex-1 px-4 py-3 bg-transparent border border-[#333] rounded-lg text-[#f0f0f0] placeholder-[#444] focus:outline-none focus:border-[#7b8ff5]/50 transition-colors font-mono text-sm"
+          className="flex-1 px-4 py-3 bg-transparent border border-[#444] rounded-lg text-[#f0f0f0] placeholder-[#444] focus:outline-none focus:border-[#7b8ff5]/50 transition-colors font-mono text-sm"
         />
         <button
           type="submit"

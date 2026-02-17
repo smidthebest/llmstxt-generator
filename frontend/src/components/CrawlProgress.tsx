@@ -59,7 +59,7 @@ export default function CrawlProgress({ job, isLoading }: Props) {
 
       {/* Bar */}
       {(status === "running" || status === "pending") && (
-        <div className="w-full h-px bg-[#1a1a1a] rounded-full overflow-hidden">
+        <div className="w-full h-px bg-[#222] rounded-full overflow-hidden">
           {status === "running" ? (
             <div
               className="h-full rounded-full bar-anim transition-all duration-500"
@@ -80,7 +80,7 @@ export default function CrawlProgress({ job, isLoading }: Props) {
         ].map((s) => (
           <div key={s.label} className="py-3">
             <div className="text-xl font-mono text-[#f0f0f0]">{s.value}</div>
-            <div className="text-[10px] tracking-[0.15em] uppercase text-[#555] mt-1">
+            <div className="text-[10px] tracking-[0.15em] uppercase text-[#ccc] mt-1">
               {s.label}
             </div>
           </div>
