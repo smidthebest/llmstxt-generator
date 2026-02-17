@@ -17,8 +17,8 @@ async def create_site(body: SiteCreate, db: AsyncSession = Depends(get_db)):
     url = str(body.url).rstrip("/")
     domain = urlparse(url).netloc
 
-    # Check if site already exists
-    result = await db.execute(select(Site).where(Site.domain == domain))
+    # Check if site already exists (match on full URL, not just domain)
+    result = await db.execute(select(Site).where(Site.url == url))
     existing = result.scalar_one_or_none()
     if existing:
         # Trigger a new crawl and return existing site
@@ -27,7 +27,15 @@ async def create_site(body: SiteCreate, db: AsyncSession = Depends(get_db)):
         await db.commit()
         await db.refresh(job)
 
-        await enqueue_crawl_task(db, existing.id, job.id)
+        await enqueue_crawl_task(
+            db,
+            existing.id,
+            job.id,
+            payload_json={
+                "max_depth": body.max_depth,
+                "max_pages": body.max_pages,
+            },
+        )
         return existing
 
     site = Site(url=url, domain=domain)
@@ -41,7 +49,15 @@ async def create_site(body: SiteCreate, db: AsyncSession = Depends(get_db)):
     await db.commit()
     await db.refresh(job)
 
-    await enqueue_crawl_task(db, site.id, job.id)
+    await enqueue_crawl_task(
+        db,
+        site.id,
+        job.id,
+        payload_json={
+            "max_depth": body.max_depth,
+            "max_pages": body.max_pages,
+        },
+    )
     return site
 
 

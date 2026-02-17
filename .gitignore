@@ -22,3 +22,4 @@ pgdata/
 
 # Claude
 .claude/
+AGENTS.md

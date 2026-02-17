@@ -7,68 +7,88 @@ interface Props {
 
 export default function CrawlProgress({ job, isLoading }: Props) {
   if (isLoading || !job) {
-    return <div className="text-gray-500">Loading crawl status...</div>;
+    return (
+      <div className="space-y-4">
+        <div className="h-6 w-24 rounded anim-shimmer" />
+        <div className="h-1 w-full rounded-full anim-shimmer" />
+        <div className="grid grid-cols-3 gap-4">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="h-16 rounded-lg anim-shimmer" />
+          ))}
+        </div>
+      </div>
+    );
   }
 
-  const statusColors: Record<string, string> = {
-    pending: "bg-yellow-100 text-yellow-800",
-    running: "bg-blue-100 text-blue-800",
-    completed: "bg-green-100 text-green-800",
-    failed: "bg-red-100 text-red-800",
-  };
-
+  const status = job.status;
   const progress =
     job.pages_found > 0
       ? Math.round((job.pages_crawled / job.pages_found) * 100)
       : 0;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6 anim-enter">
+      {/* Status */}
       <div className="flex items-center gap-3">
         <span
-          className={`px-3 py-1 rounded-full text-sm font-medium ${statusColors[job.status] || ""}`}
+          className={`inline-flex items-center gap-2 text-xs tracking-widest uppercase ${
+            status === "completed"
+              ? "text-[#4ade80]"
+              : status === "failed"
+                ? "text-red-400/80"
+                : "text-[#7b8ff5]"
+          }`}
         >
-          {job.status.charAt(0).toUpperCase() + job.status.slice(1)}
+          <span
+            className={`w-1.5 h-1.5 rounded-full ${
+              status === "completed"
+                ? "bg-[#4ade80]"
+                : status === "failed"
+                  ? "bg-red-400"
+                  : status === "running"
+                    ? "bg-[#7b8ff5] animate-pulse"
+                    : "bg-[#555]"
+            }`}
+          />
+          {status}
         </span>
-        {job.status === "running" && (
-          <span className="text-sm text-gray-500 animate-pulse">
-            Crawling...
-          </span>
+        {status === "running" && (
+          <span className="text-xs font-mono text-[#7b8ff5]">{progress}%</span>
         )}
       </div>
 
-      {job.status === "running" && (
-        <div className="w-full bg-gray-200 rounded-full h-3">
-          <div
-            className="bg-blue-600 h-3 rounded-full transition-all duration-300"
-            style={{ width: `${Math.max(progress, 5)}%` }}
-          />
+      {/* Bar */}
+      {(status === "running" || status === "pending") && (
+        <div className="w-full h-px bg-[#1a1a1a] rounded-full overflow-hidden">
+          {status === "running" ? (
+            <div
+              className="h-full rounded-full bar-anim transition-all duration-500"
+              style={{ width: `${Math.max(progress, 3)}%` }}
+            />
+          ) : (
+            <div className="h-full w-full anim-shimmer rounded-full" />
+          )}
         </div>
       )}
 
-      <div className="grid grid-cols-3 gap-4 text-center">
-        <div className="bg-white p-3 rounded-lg border">
-          <div className="text-2xl font-bold text-blue-600">
-            {job.pages_found}
+      {/* Stats */}
+      <div className="grid grid-cols-3 gap-4">
+        {[
+          { label: "Found", value: job.pages_found },
+          { label: "Crawled", value: job.pages_crawled },
+          { label: "Changed", value: job.pages_changed },
+        ].map((s) => (
+          <div key={s.label} className="py-3">
+            <div className="text-xl font-mono text-[#f0f0f0]">{s.value}</div>
+            <div className="text-[10px] tracking-[0.15em] uppercase text-[#555] mt-1">
+              {s.label}
+            </div>
           </div>
-          <div className="text-xs text-gray-500">Pages Found</div>
-        </div>
-        <div className="bg-white p-3 rounded-lg border">
-          <div className="text-2xl font-bold text-green-600">
-            {job.pages_crawled}
-          </div>
-          <div className="text-xs text-gray-500">Pages Crawled</div>
-        </div>
-        <div className="bg-white p-3 rounded-lg border">
-          <div className="text-2xl font-bold text-orange-600">
-            {job.pages_changed}
-          </div>
-          <div className="text-xs text-gray-500">Pages Changed</div>
-        </div>
+        ))}
       </div>
 
       {job.error_message && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+        <div className="py-3 px-4 border border-red-500/20 rounded-lg text-red-400/80 text-xs">
           {job.error_message}
         </div>
       )}

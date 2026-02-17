@@ -8,8 +8,8 @@ class Site(Base, TimestampMixin):
     __tablename__ = "sites"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    url: Mapped[str] = mapped_column(String(2048))
-    domain: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    url: Mapped[str] = mapped_column(String(2048), unique=True, index=True)
+    domain: Mapped[str] = mapped_column(String(255), index=True)
     title: Mapped[str | None] = mapped_column(String(512))
     description: Mapped[str | None] = mapped_column(Text)
 

@@ -54,19 +54,22 @@ async def scheduled_crawl(site_id: int):
         await db.commit()
         await db.refresh(job)
 
-        result = await db.execute(
-            select(MonitoringSchedule).where(MonitoringSchedule.site_id == site_id)
-        )
-        schedule = result.scalar_one_or_none()
-        if schedule:
-            schedule.last_run_at = now
-
         task = await enqueue_crawl_task(
             db,
             site_id,
             job.id,
             idempotency_key=idempotency_key,
         )
+
+        result = await db.execute(
+            select(MonitoringSchedule).where(MonitoringSchedule.site_id == site_id)
+        )
+        schedule = result.scalar_one_or_none()
+        if schedule:
+            schedule.last_run_at = now
+            apscheduler_job = scheduler.get_job(_schedule_job_id(site_id))
+            schedule.next_run_at = apscheduler_job.next_run_time if apscheduler_job else None
+            await db.commit()
 
         logger.info(
             "Scheduled crawl enqueued task=%s crawl_job=%s site=%s key=%s",
@@ -78,13 +81,13 @@ async def scheduled_crawl(site_id: int):
 
 
 def add_schedule(site_id: int, cron_expression: str):
-    """Add or replace a schedule for a site."""
+    """Add or replace a schedule for a site. Returns next_run_time."""
     job_id = _schedule_job_id(site_id)
     if scheduler.get_job(job_id):
         scheduler.remove_job(job_id)
 
     trigger = CronTrigger.from_crontab(cron_expression)
-    scheduler.add_job(
+    job = scheduler.add_job(
         scheduled_crawl,
         trigger=trigger,
         id=job_id,
@@ -92,6 +95,7 @@ def add_schedule(site_id: int, cron_expression: str):
         replace_existing=True,
     )
     logger.info("Scheduled crawl for site %s with cron: %s", site_id, cron_expression)
+    return job.next_run_time
 
 
 def remove_schedule(site_id: int):
@@ -109,17 +113,21 @@ async def sync_schedules_from_db() -> int:
         )
         schedules = result.scalars().all()
 
-    active_site_ids = {schedule.site_id for schedule in schedules}
+        active_site_ids = {schedule.site_id for schedule in schedules}
 
-    for job in scheduler.get_jobs():
-        if not job.id.startswith("crawl_site_"):
-            continue
-        site_id = int(job.id.replace("crawl_site_", ""))
-        if site_id not in active_site_ids:
-            scheduler.remove_job(job.id)
+        for job in scheduler.get_jobs():
+            if not job.id.startswith("crawl_site_"):
+                continue
+            site_id = int(job.id.replace("crawl_site_", ""))
+            if site_id not in active_site_ids:
+                scheduler.remove_job(job.id)
 
-    for schedule in schedules:
-        add_schedule(schedule.site_id, schedule.cron_expression)
+        for schedule in schedules:
+            schedule.next_run_at = add_schedule(
+                schedule.site_id, schedule.cron_expression
+            )
+
+        await db.commit()
 
     logger.info("Synced %s active schedules from database", len(schedules))
     return len(schedules)

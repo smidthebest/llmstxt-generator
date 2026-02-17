@@ -60,6 +60,10 @@ async def process_task(task_id: int, worker_id: str) -> None:
                 await heartbeat
                 return
 
+            payload = task.payload_json or {}
+            max_depth = payload.get("max_depth")
+            max_pages = payload.get("max_pages")
+
             logger.info(
                 "Running task=%s crawl_job=%s site=%s attempt=%s",
                 task.id,
@@ -67,7 +71,13 @@ async def process_task(task_id: int, worker_id: str) -> None:
                 task.site_id,
                 task.attempt_count,
             )
-            success = await run_crawl_job(db, task.site_id, task.crawl_job_id)
+            success = await run_crawl_job(
+                db,
+                task.site_id,
+                task.crawl_job_id,
+                max_depth=max_depth,
+                max_pages=max_pages,
+            )
     except Exception as exc:
         logger.exception("Unhandled worker exception for task=%s", task_id)
         failure_error = str(exc)
