@@ -15,5 +15,6 @@ class Site(Base, TimestampMixin):
 
     pages = relationship("Page", back_populates="site", cascade="all, delete-orphan")
     crawl_jobs = relationship("CrawlJob", back_populates="site", cascade="all, delete-orphan")
+    crawl_tasks = relationship("CrawlTask", back_populates="site", cascade="all, delete-orphan")
     generated_files = relationship("GeneratedFile", back_populates="site", cascade="all, delete-orphan")
     schedule = relationship("MonitoringSchedule", back_populates="site", uselist=False, cascade="all, delete-orphan")

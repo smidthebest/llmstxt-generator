@@ -6,7 +6,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.models import CrawlJob, GeneratedFile, Page, Site
 from app.services.categorizer import categorize_page, compute_relevance
-from app.services.crawl_events import cleanup, publish
 from app.services.crawler import Crawler
 from app.services.extractor import PageMetadata
 from app.services.generator import generate_llms_txt
@@ -20,15 +19,18 @@ async def run_crawl_job(
     crawl_job_id: int | None = None,
     max_depth: int | None = None,
     max_pages: int | None = None,
-):
+) -> bool:
     """Execute a full crawl + categorize + generate pipeline."""
     site = await db.get(Site, site_id)
     if not site:
-        logger.error(f"Site {site_id} not found")
-        return
+        logger.error("Site %s not found", site_id)
+        return False
 
     if crawl_job_id:
         job = await db.get(CrawlJob, crawl_job_id)
+        if not job:
+            logger.error("Crawl job %s not found", crawl_job_id)
+            return False
     else:
         job = CrawlJob(site_id=site_id, status="pending")
         db.add(job)
@@ -36,6 +38,7 @@ async def run_crawl_job(
         await db.refresh(job)
 
     job.status = "running"
+    job.max_pages = max_pages if max_pages is not None else settings.max_crawl_pages
     await db.commit()
 
     try:
@@ -53,7 +56,6 @@ async def run_crawl_job(
 
         pages_changed = 0
         new_pages: list[Page] = []
-        effective_max_pages = max_pages if max_pages is not None else settings.max_crawl_pages
 
         async def on_page_crawled(
             metadata: PageMetadata, depth: int, crawled: int, found: int
@@ -64,9 +66,7 @@ async def run_crawl_job(
             relevance = compute_relevance(metadata.url, depth, category)
 
             old_hash = old_hashes.get(metadata.url)
-            changed = (old_hash and old_hash != metadata.content_hash) or (
-                not old_hash
-            )
+            changed = (old_hash and old_hash != metadata.content_hash) or (not old_hash)
             if changed:
                 pages_changed += 1
 
@@ -87,30 +87,6 @@ async def run_crawl_job(
             job.pages_found = found
             job.pages_changed = pages_changed
             await db.commit()
-
-            # Publish SSE events
-            publish(
-                job.id,
-                {
-                    "type": "page_crawled",
-                    "url": metadata.url,
-                    "title": metadata.title,
-                    "description": metadata.description,
-                    "category": category,
-                    "relevance_score": round(relevance, 2),
-                    "depth": depth,
-                },
-            )
-            publish(
-                job.id,
-                {
-                    "type": "progress",
-                    "pages_found": found,
-                    "pages_crawled": crawled,
-                    "pages_changed": pages_changed,
-                    "max_pages": effective_max_pages,
-                },
-            )
 
         crawler_kwargs: dict = {}
         if max_depth is not None:
@@ -135,9 +111,6 @@ async def run_crawl_job(
         job.status = "completed"
         await db.commit()
 
-        publish(job.id, {"type": "completed"})
-        cleanup(job.id)
-
         # Generate llms.txt
         if settings.llmstxt_openai_key:
             from app.services.llm_generator import generate_llms_txt_with_llm
@@ -160,14 +133,16 @@ async def run_crawl_job(
         await db.commit()
 
         logger.info(
-            f"Crawl completed for {site.domain}: "
-            f"{len(crawl_results)} pages, {pages_changed} changed"
+            "Crawl completed for %s: %s pages, %s changed",
+            site.domain,
+            len(crawl_results),
+            pages_changed,
         )
+        return True
 
-    except Exception as e:
-        logger.exception(f"Crawl failed for site {site_id}")
+    except Exception as exc:
+        logger.exception("Crawl failed for site %s", site_id)
         job.status = "failed"
-        job.error_message = str(e)[:1024]
+        job.error_message = str(exc)[:1024]
         await db.commit()
-        publish(job.id, {"type": "failed", "error": str(e)[:1024]})
-        cleanup(job.id)
+        return False

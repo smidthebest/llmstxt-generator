@@ -13,7 +13,9 @@ class CrawlJob(Base, TimestampMixin):
     pages_found: Mapped[int] = mapped_column(Integer, default=0)
     pages_crawled: Mapped[int] = mapped_column(Integer, default=0)
     pages_changed: Mapped[int] = mapped_column(Integer, default=0)
+    max_pages: Mapped[int] = mapped_column(Integer, default=200)
     error_message: Mapped[str | None] = mapped_column(String(1024))
 
     site = relationship("Site", back_populates="crawl_jobs")
     generated_files = relationship("GeneratedFile", back_populates="crawl_job")
+    crawl_tasks = relationship("CrawlTask", back_populates="crawl_job")

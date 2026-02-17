@@ -1,3 +1,6 @@
+from datetime import datetime, timezone
+
+from apscheduler.triggers.cron import CronTrigger
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -5,9 +8,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models import MonitoringSchedule, Site
 from app.schemas.schedule import ScheduleCreate, ScheduleResponse
-from app.services.scheduler import add_schedule, remove_schedule
+from app.services.scheduler import add_schedule, remove_schedule, scheduler
 
 router = APIRouter(prefix="/api/sites/{site_id}/schedule", tags=["schedules"])
+
+
+def _compute_next_run(cron_expression: str):
+    trigger = CronTrigger.from_crontab(cron_expression)
+    now = datetime.now(timezone.utc)
+    return trigger.get_next_fire_time(None, now)
 
 
 @router.get("", response_model=ScheduleResponse)
@@ -45,18 +54,18 @@ async def upsert_schedule(
         )
         db.add(schedule)
 
-    await db.commit()
-    await db.refresh(schedule)
-
     if body.is_active:
-        next_run = add_schedule(site_id, body.cron_expression)
-        schedule.next_run_at = next_run
+        if scheduler.running:
+            schedule.next_run_at = add_schedule(site_id, body.cron_expression)
+        else:
+            schedule.next_run_at = _compute_next_run(body.cron_expression)
     else:
-        remove_schedule(site_id)
+        if scheduler.running:
+            remove_schedule(site_id)
         schedule.next_run_at = None
+
     await db.commit()
     await db.refresh(schedule)
-
     return schedule
 
 
@@ -69,6 +78,8 @@ async def delete_schedule(site_id: int, db: AsyncSession = Depends(get_db)):
     if not schedule:
         raise HTTPException(status_code=404, detail="No schedule found")
 
-    remove_schedule(site_id)
+    if scheduler.running:
+        remove_schedule(site_id)
+
     await db.delete(schedule)
     await db.commit()
