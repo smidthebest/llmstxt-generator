@@ -1,4 +1,5 @@
 import hashlib
+import re
 from dataclasses import dataclass
 
 from bs4 import BeautifulSoup
@@ -10,18 +11,38 @@ class PageMetadata:
     title: str | None
     description: str | None
     content_hash: str
+    metadata_hash: str
+    headings_hash: str
+    text_hash: str
     links: list[str]
+    canonical_url: str | None
+    etag: str | None = None
+    last_modified: str | None = None
+    http_status: int = 200
+    not_modified: bool = False
 
 
-def extract_metadata(url: str, html: str) -> PageMetadata:
+def extract_metadata(
+    url: str,
+    html: str,
+    *,
+    etag: str | None = None,
+    last_modified: str | None = None,
+    http_status: int = 200,
+) -> PageMetadata:
     soup = BeautifulSoup(html, "lxml")
 
     title = _extract_title(soup)
     description = _extract_description(soup)
     headings = _extract_headings(soup)
+    main_text = _extract_main_text(soup)
     links = _extract_links(soup, url)
+    canonical_url = _extract_canonical_url(soup, url)
 
-    hash_input = f"{title or ''}{description or ''}{''.join(headings)}"
+    metadata_hash = hashlib.sha256(f"{title or ''}{description or ''}".encode()).hexdigest()
+    headings_hash = hashlib.sha256("||".join(headings).encode()).hexdigest()
+    text_hash = hashlib.sha256(main_text.encode()).hexdigest()
+    hash_input = f"{metadata_hash}{headings_hash}{text_hash}"
     content_hash = hashlib.sha256(hash_input.encode()).hexdigest()
 
     return PageMetadata(
@@ -29,7 +50,14 @@ def extract_metadata(url: str, html: str) -> PageMetadata:
         title=title,
         description=description,
         content_hash=content_hash,
+        metadata_hash=metadata_hash,
+        headings_hash=headings_hash,
+        text_hash=text_hash,
         links=links,
+        canonical_url=canonical_url,
+        etag=etag,
+        last_modified=last_modified,
+        http_status=http_status,
     )
 
 
@@ -68,16 +96,69 @@ def _extract_headings(soup: BeautifulSoup) -> list[str]:
     return headings[:20]
 
 
+def _extract_main_text(soup: BeautifulSoup) -> str:
+    # Remove non-content tags that create volatile noise in diffing.
+    for tag in soup(["script", "style", "noscript", "template", "svg"]):
+        tag.decompose()
+
+    candidate = (
+        soup.find("main")
+        or soup.find("article")
+        or soup.find(attrs={"role": "main"})
+        or soup.body
+        or soup
+    )
+
+    chunks: list[str] = []
+    for tag in candidate.find_all(["h1", "h2", "h3", "p", "li", "pre", "code", "td"]):
+        text = tag.get_text(" ", strip=True)
+        if text:
+            chunks.append(text)
+
+    if not chunks:
+        raw = candidate.get_text(" ", strip=True)
+    else:
+        raw = " ".join(chunks)
+
+    normalized = re.sub(r"\s+", " ", raw).strip().lower()
+    return normalized[:50000]
+
+
+def _extract_canonical_url(soup: BeautifulSoup, base_url: str) -> str | None:
+    from urllib.parse import urljoin, urlparse
+
+    canonical = soup.find("link", rel=lambda value: value and "canonical" in value)
+    if not canonical or not canonical.get("href"):
+        return None
+
+    absolute = urljoin(base_url, canonical["href"])
+    parsed = urlparse(absolute)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        return None
+
+    path = parsed.path or "/"
+    if path != "/" and path.endswith("/"):
+        path = path[:-1]
+    return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}{path}"
+
+
 def _extract_links(soup: BeautifulSoup, base_url: str) -> list[str]:
     from urllib.parse import urljoin, urlparse
 
-    links = []
+    links: list[str] = []
+    seen: set[str] = set()
     for a in soup.find_all("a", href=True):
         href = a["href"]
         absolute = urljoin(base_url, href)
         parsed = urlparse(absolute)
-        clean = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
-        if clean.endswith("/"):
-            clean = clean.rstrip("/") or clean
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            continue
+        path = parsed.path or "/"
+        if path != "/" and path.endswith("/"):
+            path = path[:-1]
+        clean = f"{parsed.scheme.lower()}://{parsed.netloc.lower()}{path}"
+        if clean in seen:
+            continue
+        seen.add(clean)
         links.append(clean)
     return links

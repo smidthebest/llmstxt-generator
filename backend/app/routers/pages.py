@@ -17,7 +17,7 @@ async def list_pages(site_id: int, db: AsyncSession = Depends(get_db)):
 
     result = await db.execute(
         select(Page)
-        .where(Page.site_id == site_id)
+        .where(Page.site_id == site_id, Page.is_active.is_(True))
         .order_by(Page.relevance_score.desc())
     )
     return result.scalars().all()

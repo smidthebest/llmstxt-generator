@@ -15,8 +15,14 @@ class CrawlJobResponse(BaseModel):
     pages_found: int
     pages_crawled: int
     pages_changed: int
+    pages_added: int
+    pages_updated: int
+    pages_removed: int
+    pages_unchanged: int
     pages_skipped: int
     max_pages: int
+    llms_regenerated: bool
+    change_summary_json: dict | None
     error_message: str | None
     created_at: datetime
     updated_at: datetime
