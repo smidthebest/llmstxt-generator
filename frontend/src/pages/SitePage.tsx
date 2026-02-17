@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
@@ -50,19 +50,32 @@ export default function SitePage() {
     onSuccess: (job) => setActiveJobId(job.id),
   });
 
-  // Pick up the latest job automatically
+  // Pick up the latest job automatically and set initial tab
+  const initialTabSet = useRef(false);
   useEffect(() => {
     if (jobs && jobs.length > 0 && activeJobId === null) {
       setActiveJobId(jobs[0].id);
+      if (!initialTabSet.current) {
+        initialTabSet.current = true;
+        const latestStatus = jobs[0].status;
+        if (latestStatus === "completed" || latestStatus === "failed") {
+          setTab("result");
+        }
+      }
     }
   }, [jobs, activeJobId]);
 
-  // Switch to result tab when crawl completes
+  // Only auto-switch to result when a crawl *transitions* from running to completed
+  const prevStatus = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (crawlJob?.status === "completed" && tab === "progress") {
+    if (
+      prevStatus.current === "running" &&
+      crawlJob?.status === "completed"
+    ) {
       setTab("result");
     }
-  }, [crawlJob?.status, tab]);
+    prevStatus.current = crawlJob?.status;
+  }, [crawlJob?.status]);
 
   const tabs: { key: Tab; label: string }[] = [
     { key: "progress", label: "Progress" },
