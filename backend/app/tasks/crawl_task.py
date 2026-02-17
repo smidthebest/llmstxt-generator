@@ -6,7 +6,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.models import CrawlJob, GeneratedFile, Page, Site
 from app.services.categorizer import categorize_page, compute_relevance
-from app.services.crawl_events import cleanup, publish
 from app.services.crawler import Crawler
 from app.services.extractor import PageMetadata
 from app.services.generator import generate_llms_txt
@@ -56,9 +55,6 @@ async def run_crawl_job(
 
         pages_changed = 0
         new_pages: list[Page] = []
-        effective_max_pages = (
-            max_pages if max_pages is not None else settings.max_crawl_pages
-        )
 
         async def on_page_crawled(
             metadata: PageMetadata, depth: int, crawled: int, found: int
@@ -91,30 +87,6 @@ async def run_crawl_job(
             job.pages_changed = pages_changed
             await db.commit()
 
-            # Publish SSE events
-            publish(
-                job.id,
-                {
-                    "type": "page_crawled",
-                    "url": metadata.url,
-                    "title": metadata.title,
-                    "description": metadata.description,
-                    "category": category,
-                    "relevance_score": round(relevance, 2),
-                    "depth": depth,
-                },
-            )
-            publish(
-                job.id,
-                {
-                    "type": "progress",
-                    "pages_found": found,
-                    "pages_crawled": crawled,
-                    "pages_changed": pages_changed,
-                    "max_pages": effective_max_pages,
-                },
-            )
-
         crawler_kwargs: dict = {}
         if max_depth is not None:
             crawler_kwargs["max_depth"] = max_depth
@@ -137,9 +109,6 @@ async def run_crawl_job(
         job.pages_changed = pages_changed
         job.status = "completed"
         await db.commit()
-
-        publish(job.id, {"type": "completed"})
-        cleanup(job.id)
 
         # Generate llms.txt
         if settings.llmstxt_openai_key:
@@ -175,6 +144,4 @@ async def run_crawl_job(
         job.status = "failed"
         job.error_message = str(exc)[:1024]
         await db.commit()
-        publish(job.id, {"type": "failed", "error": str(exc)[:1024]})
-        cleanup(job.id)
         return False

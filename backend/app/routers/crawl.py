@@ -10,7 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import async_session, get_db
 from app.models import CrawlJob, Page, Site
 from app.schemas.crawl import CrawlConfig, CrawlJobResponse
-from app.services.crawl_events import subscribe, unsubscribe
 from app.services.task_queue import enqueue_crawl_task
 
 router = APIRouter(prefix="/api/sites/{site_id}/crawl", tags=["crawl"])
@@ -110,7 +109,6 @@ async def stream_crawl_events(
             },
         )
 
-    queue = subscribe(job_id)
     sent_urls: set[str] = set()
     last_progress: tuple[int, int, int] | None = None
     last_heartbeat_at = time.monotonic()
@@ -178,48 +176,32 @@ async def stream_crawl_events(
 
     async def event_generator():
         nonlocal last_heartbeat_at
-        try:
-            while True:
-                if await request.is_disconnected():
-                    break
-                emitted = False
-                got_queue_event = False
-                try:
-                    event = await asyncio.wait_for(queue.get(), timeout=1.0)
-                    got_queue_event = True
-                except asyncio.TimeoutError:
-                    event = None
+        while True:
+            if await request.is_disconnected():
+                break
 
-                if got_queue_event and event is None:
-                    break
+            emitted = False
+            page_events, progress_event, terminal_event = await poll_db_events()
 
-                if event is not None:
-                    yield f"data: {json.dumps(event)}\n\n"
-                    emitted = True
-                    if event.get("type") in ("completed", "failed"):
-                        break
+            for page_event in page_events:
+                yield f"data: {json.dumps(page_event)}\n\n"
+                emitted = True
 
-                page_events, progress_event, terminal_event = await poll_db_events()
+            if progress_event is not None:
+                yield f"data: {json.dumps(progress_event)}\n\n"
+                emitted = True
 
-                for page_event in page_events:
-                    yield f"data: {json.dumps(page_event)}\n\n"
-                    emitted = True
+            if terminal_event is not None:
+                yield f"data: {json.dumps(terminal_event)}\n\n"
+                break
 
-                if progress_event is not None:
-                    yield f"data: {json.dumps(progress_event)}\n\n"
-                    emitted = True
+            if emitted:
+                last_heartbeat_at = time.monotonic()
+            elif time.monotonic() - last_heartbeat_at >= 15:
+                yield ": heartbeat\n\n"
+                last_heartbeat_at = time.monotonic()
 
-                if terminal_event is not None:
-                    yield f"data: {json.dumps(terminal_event)}\n\n"
-                    break
-
-                if emitted:
-                    last_heartbeat_at = time.monotonic()
-                elif time.monotonic() - last_heartbeat_at >= 15:
-                    yield ": heartbeat\n\n"
-                    last_heartbeat_at = time.monotonic()
-        finally:
-            unsubscribe(job_id, queue)
+            await asyncio.sleep(1.0)
 
     return StreamingResponse(
         event_generator(),
