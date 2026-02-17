@@ -140,12 +140,17 @@ async def generate_llms_txt_with_llm(site: Site, pages: list[Page]) -> tuple[str
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.3,
-            max_completion_tokens=4096,
+            max_completion_tokens=16384,
             response_format=RESPONSE_SCHEMA,
         )
 
-        raw = response.choices[0].message.content.strip()
-        plan = json.loads(raw)
+        choice = response.choices[0]
+        if choice.finish_reason == "length":
+            raise ValueError("LLM response truncated — too many pages for token limit")
+        raw = choice.message.content or ""
+        if not raw.strip():
+            raise ValueError("LLM returned empty content")
+        plan = json.loads(raw.strip())
 
         # Assemble llms.txt from the plan using REAL URLs from our database
         content = _assemble_from_plan(site, page_index, plan)

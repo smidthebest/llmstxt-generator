@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   getSite,
   listCrawlJobs,
@@ -15,12 +15,20 @@ import ScheduleConfig from "../components/ScheduleConfig";
 
 type Tab = "progress" | "result" | "schedule";
 
+const TABS: { key: Tab; label: string }[] = [
+  { key: "progress", label: "Progress" },
+  { key: "result", label: "Result" },
+  { key: "schedule", label: "Schedule" },
+];
+
 export default function SitePage() {
   const { id } = useParams<{ id: string }>();
   const siteId = Number(id);
+  const queryClient = useQueryClient();
   const [tab, setTab] = useState<Tab>("progress");
   const [activeJobId, setActiveJobId] = useState<number | null>(null);
   const [editing, setEditing] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const { data: site } = useQuery({
     queryKey: ["site", siteId],
@@ -42,7 +50,17 @@ export default function SitePage() {
     queryKey: ["llmstxt", siteId],
     queryFn: () => getLlmsTxt(siteId),
     retry: false,
-    refetchInterval: crawlJob?.status === "completed" ? false : 5000,
+    refetchInterval: (query) => {
+      if (crawlJob?.status === "running" || crawlJob?.status === "pending")
+        return 5000;
+      if (
+        crawlJob?.status === "completed" &&
+        activeJobId &&
+        query.state.data?.crawl_job_id !== activeJobId
+      )
+        return 3000;
+      return false;
+    },
   });
 
   const recrawlMutation = useMutation({
@@ -50,22 +68,18 @@ export default function SitePage() {
     onSuccess: (job) => setActiveJobId(job.id),
   });
 
-  // Pick up the latest job automatically and set initial tab
   const initialTabSet = useRef(false);
   useEffect(() => {
     if (jobs && jobs.length > 0 && activeJobId === null) {
       setActiveJobId(jobs[0].id);
       if (!initialTabSet.current) {
         initialTabSet.current = true;
-        const latestStatus = jobs[0].status;
-        if (latestStatus === "completed" || latestStatus === "failed") {
-          setTab("result");
-        }
+        const s = jobs[0].status;
+        if (s === "completed" || s === "failed") setTab("result");
       }
     }
   }, [jobs, activeJobId]);
 
-  // Only auto-switch to result when a crawl *transitions* from running to completed
   const prevStatus = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (
@@ -73,48 +87,68 @@ export default function SitePage() {
       crawlJob?.status === "completed"
     ) {
       setTab("result");
+      queryClient.invalidateQueries({ queryKey: ["llmstxt", siteId] });
     }
     prevStatus.current = crawlJob?.status;
-  }, [crawlJob?.status]);
+  }, [crawlJob?.status, queryClient, siteId]);
 
-  const tabs: { key: Tab; label: string }[] = [
-    { key: "progress", label: "Progress" },
-    { key: "result", label: "Result" },
-    { key: "schedule", label: "Schedule" },
-  ];
+  const copyToClipboard = () => {
+    if (!llmsTxt?.content) return;
+    navigator.clipboard.writeText(llmsTxt.content);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8">
-      <Link to="/" className="text-blue-600 hover:underline text-sm">
+    <div className="max-w-3xl mx-auto px-6 py-10 anim-enter">
+      {/* Back */}
+      <Link
+        to="/"
+        className="inline-flex items-center gap-1 text-xs tracking-widest uppercase text-[#555] hover:text-[#ccc] transition-colors mb-6"
+      >
         &larr; Back
       </Link>
 
-      <div className="mt-4 mb-6">
-        <h1 className="text-2xl font-bold">
-          {site?.title || site?.domain || "Loading..."}
-        </h1>
-        {(() => {
-          // Prefer the LLM-generated description from llms.txt blockquote
-          const llmsDesc = llmsTxt?.content?.match(/^> (.+)$/m)?.[1];
-          const desc = llmsDesc || site?.description;
-          return desc ? (
-            <p className="text-gray-600 mt-1">{desc}</p>
-          ) : null;
-        })()}
-        {site && (
-          <p className="text-sm text-gray-400 mt-1">{site.url}</p>
-        )}
+      {/* Header */}
+      <div className="flex items-start justify-between mb-8">
+        <div>
+          <h1 className="font-display text-3xl font-bold text-[#f0f0f0]">
+            {site?.title || site?.domain || "..."}
+          </h1>
+          {(() => {
+            const llmsDesc = llmsTxt?.content?.match(/^> (.+)$/m)?.[1];
+            const desc = llmsDesc || site?.description;
+            return desc ? (
+              <p className="text-[#666] text-sm mt-2 max-w-xl">{desc}</p>
+            ) : null;
+          })()}
+          {site && (
+            <span className="inline-block text-[10px] font-mono text-[#444] mt-2 tracking-wider">
+              {site.url}
+            </span>
+          )}
+        </div>
+        <button
+          onClick={() => recrawlMutation.mutate()}
+          disabled={
+            recrawlMutation.isPending || crawlJob?.status === "running"
+          }
+          className="text-xs tracking-widest uppercase text-[#666] hover:text-[#f0f0f0] border border-[#333] hover:border-[#555] px-3 py-1.5 rounded-md disabled:opacity-30 disabled:cursor-not-allowed transition-all shrink-0"
+        >
+          {crawlJob?.status === "running" ? "Crawling..." : "Re-crawl"}
+        </button>
       </div>
 
-      <div className="flex gap-1 border-b mb-6">
-        {tabs.map((t) => (
+      {/* Tabs */}
+      <div className="flex gap-6 mb-8 border-b border-[#1a1a1a]">
+        {TABS.map((t) => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+            className={`pb-2.5 text-xs tracking-widest uppercase transition-colors border-b-2 -mb-px ${
               tab === t.key
-                ? "border-blue-600 text-blue-600"
-                : "border-transparent text-gray-500 hover:text-gray-700"
+                ? "border-[#7b8ff5] text-[#f0f0f0]"
+                : "border-transparent text-[#555] hover:text-[#999]"
             }`}
           >
             {t.label}
@@ -122,57 +156,66 @@ export default function SitePage() {
         ))}
       </div>
 
-      {tab === "progress" && (
-        <div className="space-y-4">
+      {/* Content */}
+      <div key={tab} className="anim-enter">
+        {tab === "progress" && (
           <CrawlProgress job={crawlJob} isLoading={crawlLoading} />
-          <button
-            onClick={() => recrawlMutation.mutate()}
-            disabled={
-              recrawlMutation.isPending || crawlJob?.status === "running"
-            }
-            className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50 text-sm"
-          >
-            Re-crawl
-          </button>
-        </div>
-      )}
+        )}
 
-      {tab === "result" && (
-        <div className="space-y-4">
-          {llmsTxt ? (
-            <>
-              <div className="flex gap-2 mb-4">
-                <button
-                  onClick={() => setEditing(!editing)}
-                  className="px-3 py-1.5 text-sm rounded-lg border hover:bg-gray-50"
-                >
-                  {editing ? "Preview" : "Edit"}
-                </button>
-                <a
-                  href={`/api/sites/${siteId}/llms-txt/download`}
-                  className="px-3 py-1.5 text-sm rounded-lg border hover:bg-gray-50 inline-block"
-                >
-                  Download
-                </a>
+        {tab === "result" && (
+          <div>
+            {llmsTxt ? (
+              <>
+                <div className="flex items-center gap-3 mb-5">
+                  <button
+                    onClick={() => setEditing(!editing)}
+                    className={`text-xs tracking-widest uppercase px-3 py-1.5 rounded-md border transition-all ${
+                      editing
+                        ? "bg-[#f0f0f0] text-black border-[#f0f0f0]"
+                        : "border-[#333] text-[#888] hover:text-[#f0f0f0] hover:border-[#555]"
+                    }`}
+                  >
+                    {editing ? "Preview" : "Edit"}
+                  </button>
+                  <button
+                    onClick={copyToClipboard}
+                    className="text-xs tracking-widest uppercase px-3 py-1.5 rounded-md border border-[#333] text-[#888] hover:text-[#f0f0f0] hover:border-[#555] transition-all"
+                  >
+                    {copied ? "\u2713 Copied" : "Copy"}
+                  </button>
+                  <a
+                    href={`/api/sites/${siteId}/llms-txt/download`}
+                    className="text-xs tracking-widest uppercase px-3 py-1.5 rounded-md border border-[#333] text-[#888] hover:text-[#f0f0f0] hover:border-[#555] transition-all"
+                  >
+                    Download
+                  </a>
+                </div>
+                {editing ? (
+                  <LlmsTxtEditor
+                    siteId={siteId}
+                    initialContent={llmsTxt.content}
+                  />
+                ) : (
+                  <LlmsTxtPreview content={llmsTxt.content} />
+                )}
+              </>
+            ) : crawlJob?.status === "completed" ? (
+              <div className="text-center py-20">
+                <div className="inline-block w-5 h-5 border-2 border-[#333] border-t-[#7b8ff5] rounded-full animate-spin mb-4" />
+                <p className="text-[#666] text-sm">Generating with AI...</p>
               </div>
-              {editing ? (
-                <LlmsTxtEditor
-                  siteId={siteId}
-                  initialContent={llmsTxt.content}
-                />
-              ) : (
-                <LlmsTxtPreview content={llmsTxt.content} />
-              )}
-            </>
-          ) : (
-            <div className="text-gray-500">
-              No generated file yet. Wait for the crawl to complete.
-            </div>
-          )}
-        </div>
-      )}
+            ) : (
+              <div className="text-center py-20">
+                <p className="text-[#555] text-sm">
+                  No output yet. Run a crawl first.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
 
-      {tab === "schedule" && <ScheduleConfig siteId={siteId} />}
+        {tab === "schedule" && <ScheduleConfig siteId={siteId} />}
+      </div>
     </div>
   );
 }

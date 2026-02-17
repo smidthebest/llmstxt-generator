@@ -10,7 +10,7 @@ export default function UrlInput() {
   const queryClient = useQueryClient();
 
   const mutation = useMutation({
-    mutationFn: (url: string) => createSite(url),
+    mutationFn: (u: string) => createSite(u),
     onSuccess: (site) => {
       queryClient.invalidateQueries({ queryKey: ["sites"] });
       navigate(`/sites/${site.id}`);
@@ -31,24 +31,26 @@ export default function UrlInput() {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="w-full max-w-xl mx-auto">
+    <form onSubmit={handleSubmit}>
       <div className="flex gap-2">
         <input
           type="text"
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           placeholder="https://example.com"
-          className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg"
+          className="flex-1 px-4 py-3 bg-transparent border border-[#333] rounded-lg text-[#f0f0f0] placeholder-[#444] focus:outline-none focus:border-[#7b8ff5]/50 transition-colors font-mono text-sm"
         />
         <button
           type="submit"
           disabled={mutation.isPending}
-          className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium"
+          className="px-5 py-3 bg-[#7b8ff5] text-white rounded-lg text-sm font-medium hover:bg-[#8d9ff7] disabled:opacity-40 transition-colors whitespace-nowrap"
         >
-          {mutation.isPending ? "Submitting..." : "Generate"}
+          {mutation.isPending ? "..." : "Generate"}
         </button>
       </div>
-      {error && <p className="mt-2 text-red-600 text-sm">{error}</p>}
+      {error && (
+        <p className="mt-2 text-red-400/80 text-xs anim-enter">{error}</p>
+      )}
     </form>
   );
 }

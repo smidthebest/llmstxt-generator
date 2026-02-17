@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Link, useLocation } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import HomePage from "./pages/HomePage";
 import SitePage from "./pages/SitePage";
@@ -10,15 +10,43 @@ const queryClient = new QueryClient({
   },
 });
 
-export default function App() {
+function Layout() {
+  const location = useLocation();
+  const isHome = location.pathname === "/";
+
   return (
-    <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
+    <div className="min-h-screen">
+      {!isHome && (
+        <nav className="fixed top-0 left-0 right-0 z-50 bg-black/80 backdrop-blur-md border-b border-[#1a1a1a]">
+          <div className="max-w-3xl mx-auto px-6 h-12 flex items-center justify-between">
+            <Link to="/" className="font-display text-lg font-bold text-[#f0f0f0]">
+              llms.txt
+            </Link>
+            <Link
+              to="/history"
+              className="text-xs tracking-widest uppercase text-[#666] hover:text-[#f0f0f0] transition-colors"
+            >
+              Sites
+            </Link>
+          </div>
+        </nav>
+      )}
+      <main className={!isHome ? "pt-12" : ""}>
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/sites/:id" element={<SitePage />} />
           <Route path="/history" element={<HistoryPage />} />
         </Routes>
+      </main>
+    </div>
+  );
+}
+
+export default function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        <Layout />
       </BrowserRouter>
     </QueryClientProvider>
   );

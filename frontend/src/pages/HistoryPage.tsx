@@ -13,67 +13,65 @@ export default function HistoryPage() {
   });
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8">
-      <Link to="/" className="text-blue-600 hover:underline text-sm">
-        &larr; Back
-      </Link>
-      <h1 className="text-2xl font-bold mt-4 mb-6">All Sites</h1>
+    <div className="max-w-3xl mx-auto px-6 py-10 anim-enter">
+      <h1 className="font-display text-3xl font-bold mb-8">Sites</h1>
 
-      {isLoading && <div className="text-gray-500">Loading...</div>}
+      {isLoading && (
+        <div className="space-y-3">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="h-16 rounded-lg anim-shimmer" />
+          ))}
+        </div>
+      )}
 
       {sites && sites.length === 0 && (
-        <div className="text-gray-500">
-          No sites yet.{" "}
-          <Link to="/" className="text-blue-600 hover:underline">
+        <div className="py-20 text-center">
+          <p className="text-[#555] mb-4">No sites yet.</p>
+          <Link
+            to="/"
+            className="inline-block px-5 py-2 text-sm border border-[#333] text-[#ccc] rounded-lg hover:bg-[#111] hover:border-[#555] transition-all"
+          >
             Generate your first llms.txt
           </Link>
         </div>
       )}
 
       {sites && sites.length > 0 && (
-        <div className="bg-white rounded-lg border overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-gray-50 text-left text-gray-600">
-                <th className="px-4 py-3 font-medium">Domain</th>
-                <th className="px-4 py-3 font-medium">Title</th>
-                <th className="px-4 py-3 font-medium">Created</th>
-                <th className="px-4 py-3 font-medium">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sites.map((site) => (
-                <tr key={site.id} className="border-t hover:bg-gray-50">
-                  <td className="px-4 py-3">
-                    <Link
-                      to={`/sites/${site.id}`}
-                      className="text-blue-600 hover:underline font-medium"
-                    >
-                      {site.domain}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-3 text-gray-600">
-                    {site.title || "-"}
-                  </td>
-                  <td className="px-4 py-3 text-gray-500">
+        <div className="border-t border-[#1a1a1a]">
+          <div className="stagger">
+            {sites.map((site) => (
+              <div
+                key={site.id}
+                className="flex items-center justify-between py-4 border-b border-[#1a1a1a] group"
+              >
+                <Link to={`/sites/${site.id}`} className="flex-1 min-w-0">
+                  <span className="text-sm text-[#ccc] group-hover:text-white transition-colors">
+                    {site.domain}
+                  </span>
+                  {site.title && (
+                    <span className="text-xs text-[#555] ml-3 hidden sm:inline">
+                      {site.title}
+                    </span>
+                  )}
+                </Link>
+                <div className="flex items-center gap-4 ml-4 shrink-0">
+                  <span className="text-[10px] text-[#444] tracking-wider font-mono">
                     {new Date(site.created_at).toLocaleDateString()}
-                  </td>
-                  <td className="px-4 py-3">
-                    <button
-                      onClick={() => {
-                        if (confirm("Delete this site?")) {
-                          deleteMutation.mutate(site.id);
-                        }
-                      }}
-                      className="text-red-600 hover:underline text-xs"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  </span>
+                  <button
+                    onClick={() => {
+                      if (confirm("Delete this site and all its data?")) {
+                        deleteMutation.mutate(site.id);
+                      }
+                    }}
+                    className="text-[10px] tracking-widest uppercase text-[#444] hover:text-red-400 transition-colors"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

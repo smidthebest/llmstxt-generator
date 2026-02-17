@@ -30,8 +30,7 @@ export default function ScheduleConfig({ siteId }: Props) {
   });
 
   const saveMutation = useMutation({
-    mutationFn: () =>
-      upsertSchedule(siteId, PRESETS[frequency], isActive),
+    mutationFn: () => upsertSchedule(siteId, PRESETS[frequency], isActive),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["schedule", siteId] });
       setSaved(true);
@@ -47,15 +46,26 @@ export default function ScheduleConfig({ siteId }: Props) {
   });
 
   return (
-    <div className="space-y-4 bg-white p-6 rounded-lg border">
-      <h3 className="text-lg font-semibold">Monitoring Schedule</h3>
+    <div className="space-y-5 anim-enter">
+      <h3 className="text-xs tracking-[0.15em] uppercase text-[#888]">
+        Monitoring Schedule
+      </h3>
 
       {schedule && (
-        <div className="text-sm text-gray-600">
-          Current: <code className="bg-gray-100 px-1 rounded">{schedule.cron_expression}</code>
-          {" "}({schedule.is_active ? "Active" : "Paused"})
+        <div className="flex items-center gap-3 text-xs">
+          <code className="font-mono text-[#ccc]">
+            {schedule.cron_expression}
+          </code>
+          <span className="flex items-center gap-1.5 text-[#555]">
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${schedule.is_active ? "bg-[#4ade80]" : "bg-[#333]"}`}
+            />
+            {schedule.is_active ? "Active" : "Paused"}
+          </span>
           {schedule.last_run_at && (
-            <span> | Last run: {new Date(schedule.last_run_at).toLocaleString()}</span>
+            <span className="text-[#444] font-mono">
+              {new Date(schedule.last_run_at).toLocaleString()}
+            </span>
           )}
         </div>
       )}
@@ -64,42 +74,48 @@ export default function ScheduleConfig({ siteId }: Props) {
         <select
           value={frequency}
           onChange={(e) => setFrequency(e.target.value)}
-          className="px-3 py-2 border rounded-lg"
+          className="px-3 py-2 bg-transparent border border-[#333] rounded-md text-sm text-[#ccc] focus:outline-none focus:border-[#555]"
         >
           <option value="daily">Daily</option>
           <option value="weekly">Weekly</option>
           <option value="monthly">Monthly</option>
         </select>
 
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={isActive}
-            onChange={(e) => setIsActive(e.target.checked)}
-            className="w-4 h-4"
-          />
+        <label className="relative inline-flex items-center gap-2 cursor-pointer text-xs text-[#888]">
+          <div className="relative">
+            <input
+              type="checkbox"
+              checked={isActive}
+              onChange={(e) => setIsActive(e.target.checked)}
+              className="sr-only peer"
+            />
+            <div className="w-8 h-[18px] bg-[#333] rounded-full peer-checked:bg-[#7b8ff5] transition-colors" />
+            <div className="absolute left-[3px] top-[3px] w-3 h-3 bg-[#f0f0f0] rounded-full transition-transform peer-checked:translate-x-[14px]" />
+          </div>
           Active
         </label>
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex items-center gap-3">
         <button
           onClick={() => saveMutation.mutate()}
           disabled={saveMutation.isPending}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+          className="px-4 py-2 bg-[#f0f0f0] text-black rounded-md text-xs font-medium hover:bg-white disabled:opacity-40 transition-colors"
         >
-          {saveMutation.isPending ? "Saving..." : "Save Schedule"}
+          {saveMutation.isPending ? "Saving..." : "Save"}
         </button>
         {schedule && (
           <button
             onClick={() => deleteMutation.mutate()}
             disabled={deleteMutation.isPending}
-            className="px-4 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100"
+            className="text-xs tracking-widest uppercase text-[#555] hover:text-red-400/80 transition-colors"
           >
             Remove
           </button>
         )}
-        {saved && <span className="self-center text-green-600 text-sm">Saved!</span>}
+        {saved && (
+          <span className="text-[#4ade80] text-xs anim-enter">Saved</span>
+        )}
       </div>
     </div>
   );
