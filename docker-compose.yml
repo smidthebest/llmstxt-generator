@@ -1,5 +1,3 @@
-name: profound_takehome_incremental_spike
-
 services:
   db:
     image: postgres:16-alpine
@@ -8,9 +6,9 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
-      - "${POSTGRES_HOST_PORT:-5436}:5432"
+      - "5432:5432"
     volumes:
-      - pgdata_incremental:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -21,12 +19,12 @@ services:
     build: ./backend
     environment:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/llmstxt
-      CORS_ORIGINS: '["http://localhost:${FRONTEND_HOST_PORT:-3013}","http://localhost:5173"]'
+      CORS_ORIGINS: '["http://localhost:3000","http://localhost:5173"]'
       LLMSTXT_OPENAI_KEY: ${LLMSTXT_OPENAI_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-gpt-5.2}
       RUN_SCHEDULER: "false"
     ports:
-      - "${BACKEND_HOST_PORT:-8013}:8000"
+      - "8000:8000"
     depends_on:
       db:
         condition: service_healthy
@@ -59,10 +57,10 @@ services:
   frontend:
     build: ./frontend
     ports:
-      - "${FRONTEND_HOST_PORT:-3013}:80"
+      - "3000:80"
     depends_on:
       backend:
         condition: service_healthy
 
 volumes:
-  pgdata_incremental:
+  pgdata:

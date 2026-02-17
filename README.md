@@ -51,10 +51,10 @@ export LLMSTXT_OPENAI_KEY=sk-...
 docker compose up -d --build
 
 # Open in browser
-open http://localhost:3013
+open http://localhost:3000
 ```
 
-The app will be available at `http://localhost:3013`. API docs at `http://localhost:8013/docs`.
+The app will be available at `http://localhost:3000`. API docs at `http://localhost:8000/docs`.
 
 ### Local Development
 
