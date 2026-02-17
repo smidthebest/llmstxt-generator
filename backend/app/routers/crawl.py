@@ -1,13 +1,11 @@
-import asyncio
-
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import async_session, get_db
+from app.database import get_db
 from app.models import CrawlJob, Site
 from app.schemas.crawl import CrawlJobResponse
-from app.tasks.crawl_task import run_crawl_job
+from app.services.task_queue import enqueue_crawl_task
 
 router = APIRouter(prefix="/api/sites/{site_id}/crawl", tags=["crawl"])
 
@@ -23,11 +21,7 @@ async def start_crawl(site_id: int, db: AsyncSession = Depends(get_db)):
     await db.commit()
     await db.refresh(job)
 
-    async def _crawl():
-        async with async_session() as session:
-            await run_crawl_job(session, site_id, job.id)
-
-    asyncio.create_task(_crawl())
+    await enqueue_crawl_task(db, site_id, job.id)
     return job
 
 

@@ -13,17 +13,22 @@ from app.services.generator import generate_llms_txt
 logger = logging.getLogger(__name__)
 
 
-async def run_crawl_job(db: AsyncSession, site_id: int, crawl_job_id: int | None = None):
+async def run_crawl_job(
+    db: AsyncSession, site_id: int, crawl_job_id: int | None = None
+) -> bool:
     """Execute a full crawl + categorize + generate pipeline."""
     # Get site
     site = await db.get(Site, site_id)
     if not site:
-        logger.error(f"Site {site_id} not found")
-        return
+        logger.error("Site %s not found", site_id)
+        return False
 
     # Create or get crawl job
     if crawl_job_id:
         job = await db.get(CrawlJob, crawl_job_id)
+        if not job:
+            logger.error("Crawl job %s not found", crawl_job_id)
+            return False
     else:
         job = CrawlJob(site_id=site_id, status="pending")
         db.add(job)
@@ -98,7 +103,10 @@ async def run_crawl_job(db: AsyncSession, site_id: int, crawl_job_id: int | None
         # Generate llms.txt (LLM if key is configured, otherwise deterministic)
         if settings.llmstxt_openai_key:
             from app.services.llm_generator import generate_llms_txt_with_llm
-            content, content_hash, site_desc = await generate_llms_txt_with_llm(site, new_pages)
+
+            content, content_hash, site_desc = await generate_llms_txt_with_llm(
+                site, new_pages
+            )
             if site_desc:
                 site.description = site_desc
         else:
@@ -113,12 +121,16 @@ async def run_crawl_job(db: AsyncSession, site_id: int, crawl_job_id: int | None
         await db.commit()
 
         logger.info(
-            f"Crawl completed for {site.domain}: "
-            f"{len(crawl_results)} pages, {pages_changed} changed"
+            "Crawl completed for %s: %s pages, %s changed",
+            site.domain,
+            len(crawl_results),
+            pages_changed,
         )
+        return True
 
-    except Exception as e:
-        logger.exception(f"Crawl failed for site {site_id}")
+    except Exception as exc:
+        logger.exception("Crawl failed for site %s", site_id)
         job.status = "failed"
-        job.error_message = str(e)[:1024]
+        job.error_message = str(exc)[:1024]
         await db.commit()
+        return False

@@ -11,6 +11,14 @@ class Settings(BaseSettings):
     llmstxt_openai_key: str = ""
     llm_model: str = "gpt-5.2"
 
+    run_scheduler: bool = False
+    worker_id: str = "worker-1"
+    task_lease_seconds: int = 60
+    task_poll_interval_ms: int = 1000
+    task_max_attempts: int = 5
+    task_heartbeat_interval_seconds: int = 10
+    scheduler_sync_interval_seconds: int = 30
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 

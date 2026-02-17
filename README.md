@@ -4,60 +4,48 @@ Automated [llms.txt](https://llmstxt.org/) generator for any website. Crawls a s
 
 ## Stack
 
-- **Backend**: FastAPI (Python) + SQLAlchemy + PostgreSQL
+- **Backend API**: FastAPI (Python) + SQLAlchemy + PostgreSQL
+- **Worker**: Dedicated async worker process for durable crawl task execution
 - **Frontend**: React + Vite + TypeScript + Tailwind CSS
 - **Infrastructure**: Docker Compose
 
-## Quick Start (Docker)
+## Queue/Worker Architecture (Feature A)
+
+- API requests create `crawl_jobs` and enqueue durable `crawl_tasks` in Postgres.
+- Worker claims tasks with `FOR UPDATE SKIP LOCKED`.
+- Worker uses leased execution with heartbeat renewal.
+- Failures retry with exponential backoff; terminal failures move to `dead_letter`.
+- Scheduler runs in worker only and enqueues tasks (no in-process API crawling).
+
+## Local Quick Start (Feature A ports)
+
+Use the dedicated env file and compose project name to avoid conflicts with other local agents.
 
 ```bash
-cp .env.example .env
-docker compose up --build
+cp .env.featurea.example .env.featurea
+docker compose --env-file .env.featurea -p featurea_spike up --build
 ```
 
-- Frontend: http://localhost:3000
-- Backend API: http://localhost:8000
-- API docs: http://localhost:8000/docs
+- Frontend: http://localhost:3011
+- Backend API: http://localhost:8011
+- API docs: http://localhost:8011/docs
+- Postgres host port: `5434`
 
-## Local Development
-
-### Backend
+Stop stack:
 
 ```bash
-cd backend
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-
-# Start PostgreSQL (via Docker or locally)
-docker compose up db -d
-
-# Run migrations
-alembic upgrade head
-
-# Start server
-uvicorn app.main:app --reload
+docker compose --env-file .env.featurea -p featurea_spike down
 ```
-
-### Frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-The frontend dev server proxies `/api` requests to `http://localhost:8000`.
 
 ## API Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/api/sites` | Submit URL, create site + start crawl |
+| POST | `/api/sites` | Submit URL, create site + enqueue crawl |
 | GET | `/api/sites` | List all sites |
 | GET | `/api/sites/{id}` | Get site details |
 | DELETE | `/api/sites/{id}` | Delete site (cascade) |
-| POST | `/api/sites/{id}/crawl` | Trigger re-crawl |
+| POST | `/api/sites/{id}/crawl` | Enqueue re-crawl |
 | GET | `/api/sites/{id}/crawl/{job_id}` | Poll crawl progress |
 | GET | `/api/sites/{id}/pages` | List discovered pages |
 | GET | `/api/sites/{id}/llms-txt` | Get latest llms.txt |
@@ -68,23 +56,17 @@ The frontend dev server proxies `/api` requests to `http://localhost:8000`.
 | GET | `/api/sites/{id}/schedule` | Get schedule |
 | DELETE | `/api/sites/{id}/schedule` | Remove schedule |
 
-## How It Works
+## Reliability behaviors added
 
-1. **Submit a URL** - The site is registered and a crawl begins automatically
-2. **Crawl** - BFS traversal (max depth 3, max 200 pages), respects robots.txt, fetches sitemap.xml
-3. **Extract** - Parses HTML for title, description, headings, and OG tags
-4. **Categorize** - URL-pattern heuristics assign categories (Documentation, API Reference, Guides, etc.) and relevance scores
-5. **Generate** - Assembles llms.txt following the spec with ordered sections
-6. **Monitor** - Optional cron-based re-crawling detects changes via content hashes and regenerates
+- **Durability**: tasks persist in Postgres; API restarts do not drop work.
+- **Crash recovery**: expired leases are recycled and retried.
+- **Retry control**: exponential backoff + max attempts.
+- **Dead-letter state**: exhausted tasks are visible and auditable.
 
-## Architecture
+## Railway deployment shape
 
-```
-Frontend (React) → Nginx → Backend (FastAPI) → PostgreSQL
-                              ↓
-                         Crawler (httpx async)
-                         Extractor (BeautifulSoup)
-                         Categorizer (URL heuristics)
-                         Generator (Markdown assembly)
-                         Scheduler (APScheduler)
-```
+- Service A: API (`uvicorn app.main:app`)
+- Service B: Worker (`python -m app.worker`)
+- Service C: Managed Postgres
+
+Same repo, separate start commands, no external broker required.

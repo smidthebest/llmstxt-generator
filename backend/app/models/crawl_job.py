@@ -17,3 +17,4 @@ class CrawlJob(Base, TimestampMixin):
 
     site = relationship("Site", back_populates="crawl_jobs")
     generated_files = relationship("GeneratedFile", back_populates="crawl_job")
+    crawl_tasks = relationship("CrawlTask", back_populates="crawl_job")
