@@ -93,9 +93,14 @@ export default function SitePage() {
         <h1 className="text-2xl font-bold">
           {site?.title || site?.domain || "Loading..."}
         </h1>
-        {site?.description && (
-          <p className="text-gray-600 mt-1">{site.description}</p>
-        )}
+        {(() => {
+          // Prefer the LLM-generated description from llms.txt blockquote
+          const llmsDesc = llmsTxt?.content?.match(/^> (.+)$/m)?.[1];
+          const desc = llmsDesc || site?.description;
+          return desc ? (
+            <p className="text-gray-600 mt-1">{desc}</p>
+          ) : null;
+        })()}
         {site && (
           <p className="text-sm text-gray-400 mt-1">{site.url}</p>
         )}

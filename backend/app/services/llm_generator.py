@@ -1,8 +1,6 @@
 import hashlib
 import json
 import logging
-import re
-from urllib.parse import quote
 
 from openai import AsyncOpenAI
 
@@ -46,12 +44,71 @@ Rules:
 3. Deduplicate: if multiple pages cover the same content (e.g. versioned docs), include only the canonical/latest one
 4. Exclude truly useless pages (navigation-only, error pages, meta pages)
 5. Keep descriptions under 100 characters
-6. Use clean, readable titles (strip " - Wikipedia", " | Docs", etc. suffixes if redundant)
-7. Output ONLY valid JSON, nothing else"""
+6. Use clean, readable titles (strip " - Wikipedia", " | Docs", etc. suffixes if redundant)"""
 
 
-async def generate_llms_txt_with_llm(site: Site, pages: list[Page]) -> tuple[str, str]:
-    """Use an LLM to organize pages, then construct llms.txt with guaranteed-correct URLs."""
+RESPONSE_SCHEMA = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "llmstxt_plan",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "required": ["site_description", "sections", "optional"],
+            "additionalProperties": False,
+            "properties": {
+                "site_description": {
+                    "type": "string",
+                    "description": "A one-line summary of what this website is about",
+                },
+                "sections": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["name", "pages"],
+                        "additionalProperties": False,
+                        "properties": {
+                            "name": {"type": "string"},
+                            "pages": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "required": ["id", "title", "description"],
+                                    "additionalProperties": False,
+                                    "properties": {
+                                        "id": {"type": "integer"},
+                                        "title": {"type": "string"},
+                                        "description": {"type": "string"},
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+                "optional": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["id", "title", "description"],
+                        "additionalProperties": False,
+                        "properties": {
+                            "id": {"type": "integer"},
+                            "title": {"type": "string"},
+                            "description": {"type": "string"},
+                        },
+                    },
+                },
+            },
+        },
+    },
+}
+
+
+async def generate_llms_txt_with_llm(site: Site, pages: list[Page]) -> tuple[str, str, str]:
+    """Use an LLM to organize pages, then construct llms.txt with guaranteed-correct URLs.
+
+    Returns (content, content_hash, site_description).
+    """
 
     client = AsyncOpenAI(api_key=settings.llmstxt_openai_key)
 
@@ -73,9 +130,7 @@ async def generate_llms_txt_with_llm(site: Site, pages: list[Page]) -> tuple[str
 
 {len(pages)} crawled pages:
 
-{pages_text}
-
-Output the JSON structure now."""
+{pages_text}"""
 
     try:
         response = await client.chat.completions.create(
@@ -86,31 +141,24 @@ Output the JSON structure now."""
             ],
             temperature=0.3,
             max_completion_tokens=4096,
+            response_format=RESPONSE_SCHEMA,
         )
 
         raw = response.choices[0].message.content.strip()
-
-        # Strip code fences if present
-        if raw.startswith("```"):
-            lines = raw.split("\n")
-            if lines[-1].strip() == "```":
-                lines = lines[1:-1]
-            else:
-                lines = lines[1:]
-            raw = "\n".join(lines)
-
         plan = json.loads(raw)
 
         # Assemble llms.txt from the plan using REAL URLs from our database
         content = _assemble_from_plan(site, page_index, plan)
         content_hash = hashlib.sha256(content.encode()).hexdigest()
+        site_description = plan.get("site_description", "")
         logger.info(f"LLM generated llms.txt for {site.domain} ({len(content)} chars)")
-        return content, content_hash
+        return content, content_hash, site_description
 
     except Exception as e:
         logger.exception(f"LLM generation failed for {site.domain}, falling back to deterministic")
         from app.services.generator import generate_llms_txt
-        return generate_llms_txt(site, pages)
+        content, content_hash = generate_llms_txt(site, pages)
+        return content, content_hash, ""
 
 
 def _format_md_link(title: str, url: str, description: str | None) -> str:

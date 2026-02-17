@@ -98,7 +98,9 @@ async def run_crawl_job(db: AsyncSession, site_id: int, crawl_job_id: int | None
         # Generate llms.txt (LLM if key is configured, otherwise deterministic)
         if settings.llmstxt_openai_key:
             from app.services.llm_generator import generate_llms_txt_with_llm
-            content, content_hash = await generate_llms_txt_with_llm(site, new_pages)
+            content, content_hash, site_desc = await generate_llms_txt_with_llm(site, new_pages)
+            if site_desc:
+                site.description = site_desc
         else:
             content, content_hash = generate_llms_txt(site, new_pages)
         generated = GeneratedFile(
