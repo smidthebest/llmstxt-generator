@@ -1,12 +1,13 @@
 import asyncio
 import json
+import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db
+from app.database import async_session, get_db
 from app.models import CrawlJob, Page, Site
 from app.schemas.crawl import CrawlConfig, CrawlJobResponse
 from app.services.crawl_events import subscribe, unsubscribe
@@ -54,7 +55,9 @@ async def stream_crawl_events(
     # If already finished, replay stored pages from DB then send terminal event
     if job.status in ("completed", "failed"):
         pages_result = await db.execute(
-            select(Page).where(Page.site_id == site_id).order_by(Page.id)
+            select(Page)
+            .where(Page.site_id == site_id, Page.created_at >= job.created_at)
+            .order_by(Page.id)
         )
         stored_pages = pages_result.scalars().all()
 
@@ -83,7 +86,7 @@ async def stream_crawl_events(
                         "pages_found": job.pages_found,
                         "pages_crawled": job.pages_crawled,
                         "pages_changed": job.pages_changed,
-                        "max_pages": job.pages_crawled,
+                        "max_pages": max(job.pages_crawled, 1),
                     }
                 )
                 + "\n\n"
@@ -108,25 +111,113 @@ async def stream_crawl_events(
         )
 
     queue = subscribe(job_id)
+    sent_urls: set[str] = set()
+    last_progress: tuple[int, int, int] | None = None
+    last_heartbeat_at = time.monotonic()
+
+    async def poll_db_events():
+        nonlocal last_progress
+        async with async_session() as poll_db:
+            current_job = await poll_db.get(CrawlJob, job_id)
+            if not current_job or current_job.site_id != site_id:
+                return [], None, {"type": "failed", "error": "Crawl job not found"}
+
+            pages_result = await poll_db.execute(
+                select(Page)
+                .where(
+                    Page.site_id == site_id,
+                    Page.created_at >= job.created_at,
+                )
+                .order_by(Page.id)
+            )
+            all_pages = pages_result.scalars().all()
+
+            page_events = []
+            for p in all_pages:
+                if p.url in sent_urls:
+                    continue
+                sent_urls.add(p.url)
+                page_events.append(
+                    {
+                        "type": "page_crawled",
+                        "url": p.url,
+                        "title": p.title,
+                        "description": p.description,
+                        "category": p.category,
+                        "relevance_score": round(p.relevance_score, 2),
+                        "depth": p.depth,
+                    }
+                )
+
+            current_progress = (
+                current_job.pages_found,
+                current_job.pages_crawled,
+                current_job.pages_changed,
+            )
+            progress_event = None
+            if current_progress != last_progress:
+                progress_event = {
+                    "type": "progress",
+                    "pages_found": current_job.pages_found,
+                    "pages_crawled": current_job.pages_crawled,
+                    "pages_changed": current_job.pages_changed,
+                    "max_pages": max(current_job.pages_crawled, 1),
+                }
+                last_progress = current_progress
+
+            terminal_event = None
+            if current_job.status == "completed":
+                terminal_event = {"type": "completed"}
+            elif current_job.status == "failed":
+                terminal_event = {
+                    "type": "failed",
+                    "error": current_job.error_message or "Crawl failed",
+                }
+
+            return page_events, progress_event, terminal_event
 
     async def event_generator():
+        nonlocal last_heartbeat_at
         try:
             while True:
                 if await request.is_disconnected():
                     break
+                emitted = False
+                got_queue_event = False
                 try:
-                    event = await asyncio.wait_for(queue.get(), timeout=15.0)
+                    event = await asyncio.wait_for(queue.get(), timeout=1.0)
+                    got_queue_event = True
                 except asyncio.TimeoutError:
+                    event = None
+
+                if got_queue_event and event is None:
+                    break
+
+                if event is not None:
+                    yield f"data: {json.dumps(event)}\n\n"
+                    emitted = True
+                    if event.get("type") in ("completed", "failed"):
+                        break
+
+                page_events, progress_event, terminal_event = await poll_db_events()
+
+                for page_event in page_events:
+                    yield f"data: {json.dumps(page_event)}\n\n"
+                    emitted = True
+
+                if progress_event is not None:
+                    yield f"data: {json.dumps(progress_event)}\n\n"
+                    emitted = True
+
+                if terminal_event is not None:
+                    yield f"data: {json.dumps(terminal_event)}\n\n"
+                    break
+
+                if emitted:
+                    last_heartbeat_at = time.monotonic()
+                elif time.monotonic() - last_heartbeat_at >= 15:
                     yield ": heartbeat\n\n"
-                    continue
-
-                if event is None:
-                    break
-
-                yield f"data: {json.dumps(event)}\n\n"
-
-                if event.get("type") in ("completed", "failed"):
-                    break
+                    last_heartbeat_at = time.monotonic()
         finally:
             unsubscribe(job_id, queue)
 
