@@ -22,20 +22,43 @@ services:
       CORS_ORIGINS: '["http://localhost:3000","http://localhost:5173"]'
       LLMSTXT_OPENAI_KEY: ${LLMSTXT_OPENAI_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-gpt-5.2}
+      RUN_SCHEDULER: "false"
     ports:
       - "8000:8000"
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     command: >
       sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
+  worker:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/llmstxt
+      LLMSTXT_OPENAI_KEY: ${LLMSTXT_OPENAI_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-gpt-5.2}
+      RUN_SCHEDULER: "true"
+      WORKER_ID: worker-1
+    depends_on:
+      db:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    command: >
+      sh -c "until alembic upgrade head; do echo waiting_for_migrations; sleep 2; done; python -m app.worker"
 
   frontend:
     build: ./frontend
     ports:
       - "3000:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
 volumes:
   pgdata:
