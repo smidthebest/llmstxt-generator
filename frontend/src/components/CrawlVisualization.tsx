@@ -133,7 +133,7 @@ export default function CrawlVisualization({
   // This prevents the race where polled status flips to "completed" before
   // the live SSE stream finishes, and ensures pages are visible when
   // navigating to an already-completed crawl.
-  const { pages, progress, isComplete, error } = useCrawlStream(
+  const { pages, progress, isComplete, isGenerating, error } = useCrawlStream(
     siteId,
     job?.id ?? null,
     !!job
@@ -177,7 +177,9 @@ export default function CrawlVisualization({
     ? "completed"
     : error
       ? "failed"
-      : job.status;
+      : isGenerating || job.status === "generating"
+        ? "generating"
+        : job.status;
 
   return (
     <div className="space-y-6 anim-enter">
@@ -189,7 +191,9 @@ export default function CrawlVisualization({
               ? "text-[#4ade80]"
               : status === "failed"
                 ? "text-red-400/80"
-                : "text-[#7b8ff5]"
+                : status === "generating"
+                  ? "text-[#f59e0b]"
+                  : "text-[#7b8ff5]"
           }`}
         >
           <span
@@ -198,15 +202,22 @@ export default function CrawlVisualization({
                 ? "bg-[#4ade80]"
                 : status === "failed"
                   ? "bg-red-400"
-                  : status === "running"
-                    ? "bg-[#7b8ff5] animate-pulse"
-                    : "bg-[#555]"
+                  : status === "generating"
+                    ? "bg-[#f59e0b] animate-pulse"
+                    : status === "running"
+                      ? "bg-[#7b8ff5] animate-pulse"
+                      : "bg-[#555]"
             }`}
           />
-          {status}
+          {status === "generating" ? "generating llms.txt" : status}
         </span>
         {status === "running" && (
           <span className="text-xs font-mono text-[#7b8ff5]">{pct}%</span>
+        )}
+        {status === "generating" && (
+          <span className="text-[10px] text-[#bbb]">
+            crawl complete, generating with AI...
+          </span>
         )}
         {status === "running" && pages.length > 0 && (
           <span className="text-[10px] text-[#bbb] font-mono">
@@ -227,9 +238,11 @@ export default function CrawlVisualization({
       </div>
 
       {/* Progress bar */}
-      {(status === "running" || status === "pending") && (
+      {(status === "running" || status === "pending" || status === "generating") && (
         <div className="w-full h-px bg-[#222] rounded-full overflow-hidden">
-          {status === "running" ? (
+          {status === "generating" ? (
+            <div className="h-full w-full rounded-full bg-[#f59e0b] animate-pulse" />
+          ) : status === "running" ? (
             <div
               className="h-full rounded-full bar-anim transition-all duration-500"
               style={{ width: `${Math.max(pct, 3)}%` }}

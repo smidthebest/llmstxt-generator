@@ -23,7 +23,7 @@ export interface Site {
 export interface CrawlJob {
   id: number;
   site_id: number;
-  status: "pending" | "running" | "completed" | "failed";
+  status: "pending" | "running" | "generating" | "completed" | "failed";
   pages_found: number;
   pages_crawled: number;
   pages_changed: number;

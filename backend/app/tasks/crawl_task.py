@@ -255,7 +255,10 @@ async def run_crawl_job(
         job.llms_regenerated = should_regenerate
 
         if should_regenerate:
-            # Generate llms.txt only when meaningful changes occurred.
+            # Signal the "generating" phase so SSE/UI can show progress
+            job.status = "generating"
+            await db.commit()
+
             if settings.llmstxt_openai_key:
                 from app.services.llm_generator import generate_llms_txt_with_llm
 

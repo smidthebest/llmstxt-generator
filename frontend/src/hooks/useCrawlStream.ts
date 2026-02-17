@@ -21,6 +21,7 @@ export interface CrawlProgressEvent {
   pages_unchanged?: number;
   pages_skipped: number;
   max_pages: number;
+  status?: string;
 }
 
 export type CrawlEvent =
@@ -33,6 +34,7 @@ interface UseCrawlStreamReturn {
   pages: CrawlPageEvent[];
   progress: CrawlProgressEvent | null;
   isComplete: boolean;
+  isGenerating: boolean;
   error: string | null;
 }
 
@@ -44,6 +46,7 @@ export function useCrawlStream(
   const [pages, setPages] = useState<CrawlPageEvent[]>([]);
   const [progress, setProgress] = useState<CrawlProgressEvent | null>(null);
   const [isComplete, setIsComplete] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const esRef = useRef<EventSource | null>(null);
   const prevJobId = useRef<number | null>(null);
@@ -55,6 +58,7 @@ export function useCrawlStream(
       setPages([]);
       setProgress(null);
       setIsComplete(false);
+      setIsGenerating(false);
       setError(null);
     }
   }, [jobId]);
@@ -77,6 +81,9 @@ export function useCrawlStream(
             break;
           case "progress":
             setProgress(data);
+            if (data.status === "generating") {
+              setIsGenerating(true);
+            }
             break;
           case "completed":
             setIsComplete(true);
@@ -102,5 +109,5 @@ export function useCrawlStream(
     };
   }, [siteId, jobId, enabled, isComplete]);
 
-  return { pages, progress, isComplete, error };
+  return { pages, progress, isComplete, isGenerating, error };
 }

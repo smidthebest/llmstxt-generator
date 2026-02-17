@@ -120,7 +120,7 @@ async def stream_crawl_events(
         )
 
     sent_urls: set[str] = set()
-    last_progress: tuple[int, int, int, int, int, int, int] | None = None
+    last_progress: tuple[int, int, int, int, int, int, int, str] | None = None
     last_heartbeat_at = time.monotonic()
 
     async def poll_db_events():
@@ -167,6 +167,7 @@ async def stream_crawl_events(
                 current_job.pages_removed,
                 current_job.pages_unchanged,
                 current_job.pages_skipped,
+                current_job.status,
             )
             progress_event = None
             if current_progress != last_progress:
@@ -192,6 +193,26 @@ async def stream_crawl_events(
                     "type": "failed",
                     "error": current_job.error_message or "Crawl failed",
                 }
+
+            # "generating" is a non-terminal phase — emit as progress
+            if current_job.status == "generating" and (
+                progress_event is None
+                or progress_event.get("status") != "generating"
+            ):
+                if progress_event is None:
+                    progress_event = {
+                        "type": "progress",
+                        "pages_found": current_job.pages_found,
+                        "pages_crawled": current_job.pages_crawled,
+                        "pages_changed": current_job.pages_changed,
+                        "pages_added": current_job.pages_added,
+                        "pages_updated": current_job.pages_updated,
+                        "pages_removed": current_job.pages_removed,
+                        "pages_unchanged": current_job.pages_unchanged,
+                        "pages_skipped": current_job.pages_skipped,
+                        "max_pages": current_job.max_pages,
+                    }
+                progress_event["status"] = "generating"
 
             return page_events, progress_event, terminal_event
 

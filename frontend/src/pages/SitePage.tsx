@@ -55,7 +55,7 @@ export default function SitePage() {
     queryFn: () => getLlmsTxt(siteId),
     retry: false,
     refetchInterval: (query) => {
-      if (crawlJob?.status === "running" || crawlJob?.status === "pending")
+      if (crawlJob?.status === "running" || crawlJob?.status === "pending" || crawlJob?.status === "generating")
         return 5000;
       if (
         crawlJob?.status === "completed" &&
@@ -82,26 +82,28 @@ export default function SitePage() {
         if (s === "completed" || s === "failed") setTab("result");
       }
     }
-    // Seed crawl config from the most recent job's max_pages
+    // Seed crawl config from the most recent job's settings
     if (jobs && jobs.length > 0 && !configInitialized.current) {
       configInitialized.current = true;
-      const lastMaxPages = jobs[0].max_pages;
-      if (lastMaxPages && lastMaxPages !== 200) {
-        setCrawlConfig((prev) => ({ ...prev, max_pages: lastMaxPages }));
+      const lastJob = jobs[0];
+      if (lastJob.max_pages) {
+        setCrawlConfig((prev) => ({ ...prev, max_pages: lastJob.max_pages }));
       }
     }
   }, [jobs, activeJobId]);
 
   const prevStatus = useRef<string | undefined>(undefined);
   useEffect(() => {
+    const prev = prevStatus.current;
+    const cur = crawlJob?.status;
     if (
-      prevStatus.current === "running" &&
-      crawlJob?.status === "completed"
+      (prev === "running" || prev === "generating") &&
+      cur === "completed"
     ) {
       setTab("result");
       queryClient.invalidateQueries({ queryKey: ["llmstxt", siteId] });
     }
-    prevStatus.current = crawlJob?.status;
+    prevStatus.current = cur;
   }, [crawlJob?.status, queryClient, siteId]);
 
   const copyToClipboard = () => {
@@ -143,11 +145,11 @@ export default function SitePage() {
         <button
           onClick={() => recrawlMutation.mutate()}
           disabled={
-            recrawlMutation.isPending || crawlJob?.status === "running"
+            recrawlMutation.isPending || crawlJob?.status === "running" || crawlJob?.status === "generating"
           }
           className="text-xs tracking-widest uppercase text-[#ddd] hover:text-[#f0f0f0] border border-[#444] hover:border-[#555] px-3 py-1.5 rounded-md disabled:opacity-30 disabled:cursor-not-allowed transition-all shrink-0"
         >
-          {crawlJob?.status === "running" ? "Crawling..." : "Re-crawl"}
+          {crawlJob?.status === "running" ? "Crawling..." : crawlJob?.status === "generating" ? "Generating..." : "Re-crawl"}
         </button>
       </div>
 
