@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
-      - "${DB_HOST_PORT:-5434}:5432"
+      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -18,56 +18,24 @@ services:
   backend:
     build: ./backend
     environment:
-      DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql+asyncpg://postgres:postgres@db:5432/llmstxt}
-      CORS_ORIGINS: '${CORS_ORIGINS:-["http://localhost:3011","http://localhost:5174"]}'
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/llmstxt
+      CORS_ORIGINS: '["http://localhost:3000","http://localhost:5173"]'
       LLMSTXT_OPENAI_KEY: ${LLMSTXT_OPENAI_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-gpt-5.2}
-      RUN_SCHEDULER: "false"
-      TASK_LEASE_SECONDS: ${TASK_LEASE_SECONDS:-60}
-      TASK_POLL_INTERVAL_MS: ${TASK_POLL_INTERVAL_MS:-1000}
-      TASK_MAX_ATTEMPTS: ${TASK_MAX_ATTEMPTS:-5}
-      TASK_HEARTBEAT_INTERVAL_SECONDS: ${TASK_HEARTBEAT_INTERVAL_SECONDS:-10}
     ports:
-      - "${BACKEND_HOST_PORT:-8011}:8000"
+      - "8000:8000"
     depends_on:
       db:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8000/api/health\")' || exit 1"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
     command: >
       sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
-
-  worker:
-    build: ./backend
-    environment:
-      DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql+asyncpg://postgres:postgres@db:5432/llmstxt}
-      CORS_ORIGINS: '${CORS_ORIGINS:-["http://localhost:3011","http://localhost:5174"]}'
-      LLMSTXT_OPENAI_KEY: ${LLMSTXT_OPENAI_KEY:-}
-      LLM_MODEL: ${LLM_MODEL:-gpt-5.2}
-      RUN_SCHEDULER: ${RUN_SCHEDULER_WORKER:-true}
-      WORKER_ID: ${WORKER_ID:-worker-1}
-      TASK_LEASE_SECONDS: ${TASK_LEASE_SECONDS:-60}
-      TASK_POLL_INTERVAL_MS: ${TASK_POLL_INTERVAL_MS:-1000}
-      TASK_MAX_ATTEMPTS: ${TASK_MAX_ATTEMPTS:-5}
-      TASK_HEARTBEAT_INTERVAL_SECONDS: ${TASK_HEARTBEAT_INTERVAL_SECONDS:-10}
-    depends_on:
-      db:
-        condition: service_healthy
-      backend:
-        condition: service_healthy
-    command: >
-      sh -c "python -m app.worker"
 
   frontend:
     build: ./frontend
     ports:
-      - "${FRONTEND_HOST_PORT:-3011}:80"
+      - "3000:80"
     depends_on:
-      backend:
-        condition: service_healthy
+      - backend
 
 volumes:
   pgdata:
