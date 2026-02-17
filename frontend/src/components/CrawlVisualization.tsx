@@ -166,6 +166,10 @@ export default function CrawlVisualization({
   const found = progress?.pages_found ?? job.pages_found;
   const crawled = progress?.pages_crawled ?? job.pages_crawled;
   const changed = progress?.pages_changed ?? job.pages_changed;
+  const added = progress?.pages_added ?? job.pages_added;
+  const updated = progress?.pages_updated ?? job.pages_updated;
+  const removed = progress?.pages_removed ?? job.pages_removed;
+  const unchanged = progress?.pages_unchanged ?? job.pages_unchanged;
   const skipped = progress?.pages_skipped ?? job.pages_skipped;
   const maxPages = progress?.max_pages ?? job.max_pages;
   const pct = maxPages > 0 ? Math.min(Math.round((crawled / maxPages) * 100), 100) : 0;
@@ -209,6 +213,17 @@ export default function CrawlVisualization({
             {pages[pages.length - 1].url.replace(/https?:\/\//, "").slice(0, 50)}
           </span>
         )}
+        {status === "completed" && (
+          <span
+            className={`text-[10px] font-mono ${
+              job.llms_regenerated ? "text-[#4ade80]" : "text-[#f59e0b]"
+            }`}
+          >
+            {job.llms_regenerated
+              ? "llms.txt regenerated"
+              : "no meaningful changes (llms.txt reused)"}
+          </span>
+        )}
       </div>
 
       {/* Progress bar */}
@@ -226,16 +241,24 @@ export default function CrawlVisualization({
       )}
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: "Crawled", value: `${crawled} / ${maxPages}` },
-          { label: "Found", value: found },
-          { label: "Changed", value: changed },
+          { label: "Crawled", value: `${crawled} / ${maxPages}`, tone: "base" },
+          { label: "Found", value: found, tone: "base" },
+          { label: "Changed", value: changed, tone: "base" },
           { label: "Skipped", value: skipped, warn: skipped > 0 },
+          { label: "Added", value: added, tone: "good" },
+          { label: "Updated", value: updated, tone: "base" },
+          { label: "Removed", value: removed, tone: removed > 0 ? "warn" : "base" },
+          { label: "Unchanged", value: unchanged, tone: "muted" },
         ].map((s) => (
           <div key={s.label} className="py-3">
             <div className={`text-xl font-mono ${
               "warn" in s && s.warn ? "text-[#f59e0b]" : "text-[#f0f0f0]"
+            } ${
+              "tone" in s && s.tone === "good" ? "text-[#4ade80]" : ""
+            } ${
+              "tone" in s && s.tone === "muted" ? "text-[#9ca3af]" : ""
             }`}>{s.value}</div>
             <div className="text-[10px] tracking-[0.15em] uppercase text-[#ccc] mt-1">
               {s.label}

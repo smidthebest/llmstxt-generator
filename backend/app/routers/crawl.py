@@ -56,7 +56,11 @@ async def stream_crawl_events(
     if job.status in ("completed", "failed"):
         pages_result = await db.execute(
             select(Page)
-            .where(Page.site_id == site_id, Page.created_at >= job.created_at)
+            .where(
+                Page.site_id == site_id,
+                Page.is_active.is_(True),
+                Page.last_checked_at >= job.created_at,
+            )
             .order_by(Page.id)
         )
         stored_pages = pages_result.scalars().all()
@@ -86,6 +90,10 @@ async def stream_crawl_events(
                         "pages_found": job.pages_found,
                         "pages_crawled": job.pages_crawled,
                         "pages_changed": job.pages_changed,
+                        "pages_added": job.pages_added,
+                        "pages_updated": job.pages_updated,
+                        "pages_removed": job.pages_removed,
+                        "pages_unchanged": job.pages_unchanged,
                         "pages_skipped": job.pages_skipped,
                         "max_pages": job.max_pages,
                     }
@@ -112,7 +120,7 @@ async def stream_crawl_events(
         )
 
     sent_urls: set[str] = set()
-    last_progress: tuple[int, int, int] | None = None
+    last_progress: tuple[int, int, int, int, int, int, int] | None = None
     last_heartbeat_at = time.monotonic()
 
     async def poll_db_events():
@@ -126,7 +134,8 @@ async def stream_crawl_events(
                 select(Page)
                 .where(
                     Page.site_id == site_id,
-                    Page.created_at >= job.created_at,
+                    Page.is_active.is_(True),
+                    Page.last_checked_at >= job.created_at,
                 )
                 .order_by(Page.id)
             )
@@ -153,6 +162,10 @@ async def stream_crawl_events(
                 current_job.pages_found,
                 current_job.pages_crawled,
                 current_job.pages_changed,
+                current_job.pages_added,
+                current_job.pages_updated,
+                current_job.pages_removed,
+                current_job.pages_unchanged,
                 current_job.pages_skipped,
             )
             progress_event = None
@@ -162,6 +175,10 @@ async def stream_crawl_events(
                     "pages_found": current_job.pages_found,
                     "pages_crawled": current_job.pages_crawled,
                     "pages_changed": current_job.pages_changed,
+                    "pages_added": current_job.pages_added,
+                    "pages_updated": current_job.pages_updated,
+                    "pages_removed": current_job.pages_removed,
+                    "pages_unchanged": current_job.pages_unchanged,
                     "pages_skipped": current_job.pages_skipped,
                     "max_pages": current_job.max_pages,
                 }

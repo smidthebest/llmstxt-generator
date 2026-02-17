@@ -51,7 +51,8 @@ def generate_llms_txt(site: Site, pages: list[Page]) -> tuple[str, str]:
         for page in section_pages:
             desc = f": {page.description}" if page.description else ""
             label = page.title or page.url
-            lines.append(f"- [{label}]({page.url}){desc}")
+            safe_url = page.url.replace("(", "%28").replace(")", "%29")
+            lines.append(f"- [{label}]({safe_url}){desc}")
         lines.append("")
 
     # Optional section
@@ -61,7 +62,8 @@ def generate_llms_txt(site: Site, pages: list[Page]) -> tuple[str, str]:
         for page in optional_pages:
             desc = f": {page.description}" if page.description else ""
             label = page.title or page.url
-            lines.append(f"- [{label}]({page.url}){desc}")
+            safe_url = page.url.replace("(", "%28").replace(")", "%29")
+            lines.append(f"- [{label}]({safe_url}){desc}")
         lines.append("")
 
     content = "\n".join(lines)

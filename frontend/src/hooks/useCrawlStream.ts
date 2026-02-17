@@ -15,6 +15,10 @@ export interface CrawlProgressEvent {
   pages_found: number;
   pages_crawled: number;
   pages_changed: number;
+  pages_added?: number;
+  pages_updated?: number;
+  pages_removed?: number;
+  pages_unchanged?: number;
   pages_skipped: number;
   max_pages: number;
 }

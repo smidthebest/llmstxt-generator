@@ -27,8 +27,21 @@ export interface CrawlJob {
   pages_found: number;
   pages_crawled: number;
   pages_changed: number;
+  pages_added: number;
+  pages_updated: number;
+  pages_removed: number;
+  pages_unchanged: number;
   pages_skipped: number;
   max_pages: number;
+  llms_regenerated: boolean;
+  change_summary_json: {
+    added: number;
+    updated: number;
+    removed: number;
+    unchanged: number;
+    removed_urls?: string[];
+    active_pages?: number;
+  } | null;
   error_message: string | null;
   created_at: string;
   updated_at: string;

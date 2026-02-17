@@ -12,7 +12,7 @@ A full-stack application that automatically generates [llms.txt](https://llmstxt
 - **Version history** — Every generated llms.txt is versioned. View and diff previous generations.
 - **Inline editing** — Edit the generated llms.txt directly in the browser with a Markdown editor.
 - **Scheduled re-crawls** — Cron-based scheduling (via APScheduler) to automatically re-crawl sites on a recurring basis.
-- **Change detection** — Content-hash-based change tracking across crawl runs. The "Changed" counter shows how many pages have new or modified content since the last crawl.
+- **Incremental change detection** — Robust page fingerprints (`metadata_hash`, `headings_hash`, `text_hash`) plus added/updated/removed/unchanged counters. `llms.txt` regeneration is skipped on no-op runs.
 - **Advanced crawl configuration** — Configure max depth and max pages before each crawl via a collapsible settings panel.
 
 ## Tech Stack
@@ -116,7 +116,7 @@ Environment variables (set in `docker-compose.yml` or via `.env`):
 3. **Extract** — Each page is parsed for title, description, headings, and OG tags
 4. **Categorize** — URL-pattern heuristics assign categories (Documentation, API Reference, Guides, etc.) and compute relevance scores
 5. **Generate** — llms.txt is assembled following the spec, with sections ordered by relevance
-6. **Monitor** — Optional cron-based re-crawling detects content changes via SHA-256 hashes and regenerates
+6. **Monitor** — Optional cron-based re-crawling tracks added/updated/removed/unchanged pages and regenerates `llms.txt` only when meaningful changes are detected
 
 ## Architecture
 
