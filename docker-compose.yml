@@ -55,7 +55,10 @@ services:
       sh -c "until alembic upgrade head; do echo waiting_for_migrations; sleep 2; done; python -m app.worker"
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: http://localhost:8000/api
     ports:
       - "3000:80"
     depends_on:
