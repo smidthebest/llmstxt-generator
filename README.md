@@ -4,7 +4,8 @@ Automatically generates [llms.txt](https://llmstxt.org/) files for any website. 
 
 **Live demo:** [https://amusing-reprieve-production-ac49.up.railway.app](https://amusing-reprieve-production-ac49.up.railway.app)
 
-[Screenshot: Home page — URL input with list of previously crawled sites]
+<img width="1624" height="994" alt="Screenshot 2026-02-19 at 4 27 07 PM" src="https://github.com/user-attachments/assets/a6e0d04d-a08a-4e43-a666-83dbda4bcb3f" />
+
 
 ## How It Works
 
@@ -14,9 +15,9 @@ Automatically generates [llms.txt](https://llmstxt.org/) files for any website. 
 4. **Generate** — pages are sent to an LLM (GPT) which selects the most important pages and organizes them into a structured llms.txt
 5. **Monitor** — optional cron scheduling re-crawls sites and regenerates llms.txt only when meaningful changes are detected
 
-[Screenshot: Live crawl progress — real-time feed showing URLs being discovered with category badges and relevance scores]
+<img width="1624" height="994" alt="Screenshot 2026-02-19 at 4 27 45 PM" src="https://github.com/user-attachments/assets/d89b11f5-2a60-40fd-be63-417f653c0dbd" />
 
-[Screenshot: Generated llms.txt result — rendered markdown with sections, links, and descriptions]
+<img width="1624" height="994" alt="Screenshot 2026-02-19 at 4 28 11 PM" src="https://github.com/user-attachments/assets/b763fae3-5b57-4d7c-a14e-f8abf4eef28e" />
 
 ## Architecture
 
