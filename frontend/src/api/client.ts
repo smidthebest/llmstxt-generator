@@ -1,6 +1,8 @@
 import axios from "axios";
 
-const api = axios.create({ baseURL: "/api" });
+const api = axios.create({
+  baseURL: import.meta.env.VITE_API_URL || "/api",
+});
 
 // Bust Safari's aggressive HTTP cache by making every GET URL unique
 api.interceptors.request.use((config) => {

@@ -1,9 +1,19 @@
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/llmstxt"
     cors_origins: list[str] = ["http://localhost:5173"]
+
+    @model_validator(mode="after")
+    def normalize_database_url(self):
+        # Railway provides postgresql://, SQLAlchemy+asyncpg needs postgresql+asyncpg://
+        if self.database_url.startswith("postgresql://"):
+            self.database_url = self.database_url.replace(
+                "postgresql://", "postgresql+asyncpg://", 1
+            )
+        return self
     max_crawl_depth: int = 3
     max_crawl_pages: int = 200
     crawl_concurrency: int = 20

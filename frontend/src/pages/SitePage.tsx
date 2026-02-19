@@ -201,7 +201,7 @@ export default function SitePage() {
                 {copied ? "\u2713 Copied" : "Copy"}
               </button>
               <a
-                href={`/api/sites/${siteId}/llms-txt/download`}
+                href={`${import.meta.env.VITE_API_URL || "/api"}/sites/${siteId}/llms-txt/download`}
                 className="text-xs tracking-widest uppercase px-3 py-1.5 rounded-md border border-[#444] text-[#ccc] hover:text-[#f0f0f0] hover:border-[#555] transition-all"
               >
                 Download

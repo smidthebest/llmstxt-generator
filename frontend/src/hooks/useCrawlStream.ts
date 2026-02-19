@@ -69,7 +69,8 @@ export function useCrawlStream(
     // Don't reconnect if we already completed this job
     if (isComplete) return;
 
-    const es = new EventSource(`/api/sites/${siteId}/crawl/${jobId}/stream`);
+    const base = import.meta.env.VITE_API_URL || "/api";
+    const es = new EventSource(`${base}/sites/${siteId}/crawl/${jobId}/stream`);
     esRef.current = es;
 
     es.onmessage = (event) => {
