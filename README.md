@@ -1,403 +1,167 @@
 # llms.txt Generator
 
-A full-stack application that automatically generates [llms.txt](https://llmstxt.org/) files for any website. It crawls a given URL, categorizes discovered pages, computes relevance scores, and produces a structured llms.txt file that helps LLMs understand your site.
+Automatically generates [llms.txt](https://llmstxt.org/) files for any website. Paste a URL, watch it crawl in real-time, and get an AI-organized llms.txt that helps LLMs understand your site.
 
-## Features
+**Live demo:** [https://amusing-reprieve-production-ac49.up.railway.app](https://amusing-reprieve-production-ac49.up.railway.app)
 
-- **Automated crawling** — BFS crawler with configurable depth (1-5) and page limit (50-500, default 200). Respects robots.txt, parses sitemaps (including recursive sitemap indices), skips binary files, and rate-limits requests.
-- **2-tier fetch (httpx + Playwright)** — Static sites are crawled with httpx (fast, low-memory). JS-heavy SPAs (React, Next.js, Nuxt, Vue) are automatically detected and rendered with headless Chromium via Playwright. SPA detection uses a heuristic: mount-point div + low visible text + few links.
-- **Bot protection handling** — Detects common bot-protection patterns (Cloudflare challenge pages, CAPTCHAs). Falls back to sitemap-based crawling when the site blocks direct page fetches.
-- **Timeout pressure protection** — Progress-aware circuit breaker aborts timeout-heavy crawls early (instead of burning a worker indefinitely), then retries via durable queue backoff.
-- **Live crawl visualization** — Real-time SSE (Server-Sent Events) feed showing each URL as it's crawled, with title, description, category badge, depth indicator, and relevance score.
-- **Page categorization** — URL-pattern-based classification into categories like Documentation, API Reference, Guides, Getting Started, Examples, FAQ, Blog, etc.
-- **Relevance scoring** — Heuristic scoring based on page category, crawl depth, URL path length, and sitemap presence.
-- **LLM-powered generation** — Uses OpenAI (configurable model) to generate structured llms.txt with intelligent section grouping and descriptions. Falls back to a deterministic template generator when no API key is configured.
-- **Version history** — Every generated llms.txt is versioned. View and diff previous generations.
-- **Inline editing** — Edit the generated llms.txt directly in the browser with a Markdown editor.
-- **Scheduled re-crawls** — Cron-based scheduling (via APScheduler) to automatically re-crawl sites on a recurring basis.
-- **Incremental change detection** — Robust page fingerprints (`metadata_hash`, `headings_hash`, `text_hash`) plus added/updated/removed/unchanged counters. `llms.txt` regeneration is skipped on no-op runs.
-- **Advanced crawl configuration** — Configure max depth and max pages before each crawl via a collapsible settings panel.
-
-## Tech Stack
-
-### Backend
-- **FastAPI** — Async Python web framework
-- **SQLAlchemy 2.0** — Async ORM with asyncpg driver
-- **PostgreSQL 16** — Primary datastore
-- **Alembic** — Database migrations
-- **httpx** — Async HTTP client for crawling (Tier 1: static sites)
-- **Playwright** — Headless Chromium for JS-rendered pages (Tier 2: SPAs, auto-detected)
-- **BeautifulSoup + lxml** — HTML parsing and metadata extraction
-- **APScheduler** — Cron-based scheduled re-crawls
-- **OpenAI SDK** — LLM-powered llms.txt generation
-
-### Frontend
-- **React 18** + **TypeScript**
-- **Vite** — Build tooling
-- **TanStack Query** — Server state management with automatic polling
-- **Tailwind CSS** — Utility-first styling
-- **CodeMirror** — Markdown editor for llms.txt editing
-- **Nginx** — Static file serving with cache-control headers
-
-## Quick Start
-
-### Prerequisites
-
-- Docker and Docker Compose
-
-### Running
-
-```bash
-# (Optional) Set OpenAI API key for LLM-powered generation
-export LLMSTXT_OPENAI_KEY=sk-...
-
-# Start all services
-docker compose up -d --build
-
-# Open in browser
-open http://localhost:3000
-```
-
-The app will be available at `http://localhost:3000`. API docs at `http://localhost:8000/docs`.
-
-### Local Development
-
-#### Backend
-
-```bash
-cd backend
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-
-# Start PostgreSQL (via Docker)
-docker compose up db -d
-
-# Run migrations
-alembic upgrade head
-
-# Start API server
-uvicorn app.main:app --reload
-
-# Start worker (separate terminal)
-RUN_SCHEDULER=true python -m app.worker
-```
-
-#### Frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-The frontend dev server proxies `/api` requests to `http://localhost:8000`.
-
-### Configuration
-
-Environment variables (set in `docker-compose.yml` or via `.env`):
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `LLMSTXT_OPENAI_KEY` | _(empty)_ | OpenAI API key. If not set, falls back to template-based generation. |
-| `LLM_MODEL` | `gpt-5.2` | OpenAI model to use for llms.txt generation. |
-| `WORKER_ID` | `worker-1` | Unique identifier for the worker process. |
-| `RUN_SCHEDULER` | `false` (API) / `true` (worker) | Whether to run the APScheduler cron loop. |
-| `TASK_LEASE_SECONDS` | `60` | How long a worker lease lasts before expiry. |
-| `TASK_MAX_ATTEMPTS` | `5` | Maximum retry attempts before dead-lettering a task. |
-| `MAX_CRAWL_PAGES` | `200` | Default max pages per crawl (can be overridden per-crawl via API). |
-| `MAX_CRAWL_DEPTH` | `3` | Default max depth for BFS traversal (1-5). |
-| `CRAWL_CONCURRENCY` | `20` | Number of concurrent fetch workers per crawl job. |
-| `CRAWL_DELAY_MS` | `50` | Delay (ms) per worker between fetches for rate limiting. |
-| `CRAWL_REQUEST_TIMEOUT_SECONDS` | `15` | Per-request timeout for http fetches. |
-| `CRAWL_TIMEOUT_STREAK_THRESHOLD` | `8` | Consecutive timeouts needed to open timeout circuit. |
-| `CRAWL_TIMEOUT_RATE_THRESHOLD` | `0.7` | Timeout-rate threshold for unhealthy-domain detection. |
-| `CRAWL_TIMEOUT_MIN_SAMPLES` | `12` | Minimum request samples before timeout-rate logic applies. |
-| `CRAWL_PROGRESS_STALL_SECONDS` | `30` | Requires no crawl progress for this long before rate-based abort. |
-| `CRAWL_CIRCUIT_COOLDOWN_SECONDS` | `120` | Cooldown window recorded when timeout circuit opens. |
-| `CRAWL_MAX_DURATION_SECONDS` | `0` | Optional hard crawl duration cap; `0` disables it. |
-| `CRAWL_JS_PROBE_LOW_LINKS` | `1` | Trigger Playwright probe when crawlable links <= this. |
-| `CRAWL_JS_PROBE_MAX_DEPTH` | `1` | Only probe pages at this depth or shallower. |
-| `CRAWL_JS_PROBE_MAX_ATTEMPTS` | `3` | Max Playwright probes per crawl before giving up. |
-| `CRAWL_JS_PROBE_PROMOTE_LINKS` | `3` | Promote domain to JS mode if rendered links >= this. |
-| `WORKER_MAX_CONCURRENT_TASKS` | `3` | Max crawl jobs a single worker runs simultaneously. |
-
-## Building from Source
-
-### Docker Compose (recommended)
-
-The entire stack runs via Docker Compose with four services: PostgreSQL, backend API, worker, and frontend.
-
-```bash
-# Clone the repo
-git clone https://github.com/smidthebest/llmstxt-generator.git
-cd llmstxt-generator
-
-# (Optional) Set OpenAI API key for LLM-powered generation
-export LLMSTXT_OPENAI_KEY=sk-...
-
-# Build and start all services
-docker compose up -d --build
-```
-
-This will:
-1. Start PostgreSQL 16 with a persistent volume
-2. Build the backend image (Python 3.12 + dependencies + Playwright Chromium)
-3. Run Alembic migrations automatically on startup
-4. Start the API server (FastAPI + uvicorn) on port 8000
-5. Start 2 worker replicas that consume the task queue and run crawl jobs
-6. Build the frontend (React + Vite) and serve via Nginx on port 3000
-
-**Note:** The worker Docker image includes Playwright and headless Chromium (~400MB added to image size) for rendering JS-heavy SPAs. This is installed via `playwright install --with-deps chromium` in the Dockerfile.
-
-### Rebuilding after code changes
-
-```bash
-# Rebuild and restart all services
-docker compose up -d --build
-
-# Rebuild only the backend/worker (same image)
-docker compose build backend worker && docker compose up -d backend worker
-
-# Rebuild only the frontend
-docker compose build frontend && docker compose up -d frontend
-
-# View logs
-docker compose logs -f worker    # Worker logs (crawl activity)
-docker compose logs -f backend   # API logs
-```
-
-### Resetting the database
-
-```bash
-docker compose down -v   # -v removes the pgdata volume
-docker compose up -d --build
-```
-
-## Deployment (Railway)
-
-The app is deployed on [Railway](https://railway.com) as four separate services.
-
-**Live URLs:**
-- Frontend: https://amusing-reprieve-production-ac49.up.railway.app
-- Backend API: https://llmstxt-generator-production-f4d3.up.railway.app/api
-- API Docs: https://llmstxt-generator-production-f4d3.up.railway.app/docs
-
-### Deploying Your Own Instance
-
-1. **Create a Railway project** and add a PostgreSQL database from the Railway dashboard.
-
-2. **Add three services** from the same GitHub repo, each with a different root directory:
-
-   | Service | Root Directory | Start Command |
-   |---------|---------------|---------------|
-   | **backend** | `backend` | `/bin/sh -c "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port $PORT"` |
-   | **worker** | `backend` | `/bin/sh -c "until alembic upgrade head; do echo waiting; sleep 2; done && exec python -m app.worker"` |
-   | **frontend** | `frontend` | _(none — Dockerfile CMD handles it)_ |
-
-3. **Set environment variables** for each service:
-
-   **Backend:**
-   | Variable | Value |
-   |----------|-------|
-   | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (Railway reference variable) |
-   | `CORS_ORIGINS` | `["https://your-frontend-domain.up.railway.app"]` |
-   | `LLMSTXT_OPENAI_KEY` | Your OpenAI API key |
-   | `LLM_MODEL` | `gpt-4.1` (or your preferred model) |
-   | `RUN_SCHEDULER` | `false` |
-
-   **Worker:**
-   | Variable | Value |
-   |----------|-------|
-   | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` |
-   | `LLMSTXT_OPENAI_KEY` | Your OpenAI API key |
-   | `LLM_MODEL` | `gpt-4.1` |
-   | `RUN_SCHEDULER` | `true` |
-
-   **Frontend:**
-   | Variable | Value |
-   |----------|-------|
-   | `VITE_API_URL` | `https://your-backend-domain.up.railway.app/api` |
-
-   > **Note:** `VITE_API_URL` is a build-time variable baked into the JS bundle by Vite. You must trigger a redeploy after changing it.
-
-4. **Generate a public domain** for the backend and frontend services in Railway's networking settings.
-
-5. **Set watch paths** to prevent cross-service rebuilds:
-   - Backend/Worker: `backend/**`
-   - Frontend: `frontend/**`
-
-### Key Railway Gotchas
-
-- **`DATABASE_URL` format**: Railway provides `postgresql://...` but SQLAlchemy+asyncpg needs `postgresql+asyncpg://...`. The app auto-transforms this in `config.py` via a pydantic `model_validator`.
-- **`$PORT` expansion**: Dockerfile `CMD ["exec", "form"]` doesn't expand env vars. Use `/bin/sh -c "..."` wrapper.
-- **No Docker Compose**: Railway doesn't use `docker-compose.yml`. Each service is configured independently on the project canvas.
-- **nginx `listen $PORT`**: The frontend Dockerfile copies `nginx.conf` to `/etc/nginx/templates/default.conf.template` so nginx's entrypoint substitutes `${PORT}` at runtime.
+[Screenshot: Home page — URL input with list of previously crawled sites]
 
 ## How It Works
 
-1. **Submit a URL** — The site is registered and a crawl task is enqueued
-2. **Crawl** — The worker claims the task and performs a BFS traversal, respecting robots.txt and fetching sitemap.xml. Pages are fetched with httpx (fast, static HTML). If an SPA is detected (e.g., React/Next.js app with empty `<div id="root">`), the crawler automatically switches to headless Chromium via Playwright for JS rendering.
-3. **Protect** — If a domain enters sustained timeout pressure (timeout streak or timeout-rate + no-progress stall), the crawler aborts early and the task is retried with exponential backoff instead of occupying a worker for a long no-progress run.
-4. **Extract** — Each page is parsed for title, description, headings, and OG tags
-5. **Categorize** — URL-pattern heuristics assign categories (Documentation, API Reference, Guides, etc.) and compute relevance scores
-6. **Generate** — llms.txt is assembled following the spec, with sections ordered by relevance
-7. **Monitor** — Optional cron-based re-crawling tracks added/updated/removed/unchanged pages and regenerates `llms.txt` only when meaningful changes are detected
+1. **Submit a URL** — site is registered and a crawl task is enqueued
+2. **Crawl** — worker performs BFS traversal, respecting robots.txt and parsing sitemaps. JS-heavy SPAs are auto-detected and rendered with headless Chromium
+3. **Extract & Categorize** — each page is parsed for title, description, and headings, then classified by URL pattern (Docs, API, Guides, Blog, etc.)
+4. **Generate** — pages are sent to an LLM (GPT) which selects the most important pages and organizes them into a structured llms.txt
+5. **Monitor** — optional cron scheduling re-crawls sites and regenerates llms.txt only when meaningful changes are detected
+
+[Screenshot: Live crawl progress — real-time feed showing URLs being discovered with category badges and relevance scores]
+
+[Screenshot: Generated llms.txt result — rendered markdown with sections, links, and descriptions]
 
 ## Architecture
 
 ```
-┌──────────┐     ┌──────────┐                       ┌──────────┐
-│ Frontend │     │  Nginx   │    ┌──────────┐       │ Worker   │
-│  React   │────▶│ (static) │    │ FastAPI  │       │ Process  │
-└──────────┘     └──────────┘    │  (API)   │       └──────────┘
-      │                          └──────────┘            │
-      │  VITE_API_URL (direct)        │                  │
-      └───────────────────────────────▶│    ┌────────────┘
-                                       ▼    ▼
-                                  ┌──────────────┐
-                                  │  PostgreSQL  │
-                                  │   (pgdata)   │
-                                  └──────────────┘
+                    ┌──────────────┐
+                    │   Frontend   │
+                    │  React + TS  │
+                    │   (Nginx)    │
+                    └──────┬───────┘
+                           │ HTTP
+                           ▼
+                    ┌──────────────┐
+                    │   Backend    │
+                    │   FastAPI    │
+                    │  (REST+SSE)  │
+                    └──────┬───────┘
+                           │
+                    ┌──────┴───────┐
+                    │  PostgreSQL  │
+                    │  (DB Queue)  │
+                    └──────┬───────┘
+                           │ poll + claim
+                    ┌──────┴───────┐
+                    │    Worker    │
+                    │  Crawler +   │
+                    │  LLM Gen +   │
+                    │  Scheduler   │
+                    └──────────────┘
 ```
 
-### Services
+**Frontend** — React SPA. Calls backend API directly. Live crawl feed via SSE.
 
-| Service | Role |
-|---------|------|
-| **frontend** | React SPA served via Nginx. Calls the backend API directly via `VITE_API_URL` (baked at build time). |
-| **backend** | FastAPI application. REST API, SSE streams, database management. Does not run crawl tasks directly. |
-| **worker** | Separate Python process. Polls the task queue, executes crawl jobs, generates llms.txt, runs the APScheduler for cron re-crawls. |
-| **db** | PostgreSQL 16. Stores sites, pages, crawl jobs, generated files, schedules, and the task queue. |
+**Backend** — FastAPI. REST API, SSE streams, DB management. Does not crawl — just enqueues tasks.
 
-### Request Flow
+**Worker** — Polls a Postgres-backed task queue (`SELECT ... FOR UPDATE SKIP LOCKED`). Runs crawls, generates llms.txt via LLM, handles cron scheduling. Horizontally scalable — multiple replicas claim tasks independently with no duplicate work.
 
-1. User submits a URL via the frontend
-2. Backend creates a `Site` and `CrawlJob` record, then enqueues a `CrawlTask` into the DB-backed task queue
-3. Worker claims the task using `SELECT ... FOR UPDATE SKIP LOCKED`, sets a lease, and begins crawling
-4. As each page is crawled, the worker inserts it into the `pages` table and updates the `crawl_jobs` row with progress counters
-5. Frontend connects to the SSE endpoint (`GET /api/sites/{id}/crawl/{jobId}/stream`), which polls the DB every 1s for new pages and progress updates
-6. When the crawl completes, the worker generates llms.txt (via LLM or template) and marks the job as completed
-7. The SSE stream sends a terminal `completed` event and closes
+**PostgreSQL** — Stores sites, pages, crawl jobs, generated files, schedules, and the durable task queue.
 
-### Why a Separate Worker Process?
+## Tech Stack
 
-The original architecture ran crawl jobs as `asyncio.create_task()` on the uvicorn event loop. This was simple but had real limitations:
+| Layer | Technologies |
+|-------|-------------|
+| **Frontend** | React 18, TypeScript, Vite, TanStack Query, Tailwind CSS, CodeMirror |
+| **Backend** | FastAPI, SQLAlchemy 2.0 (async), Alembic, httpx (HTTP/2), Playwright |
+| **Database** | PostgreSQL 16 |
+| **LLM** | OpenAI SDK with structured outputs (JSON schema) |
+| **Infra** | Docker Compose, Nginx, Railway |
 
-| Concern | Old (in-process) | New (worker) |
-|---------|-------------------|--------------|
-| **Crash recovery** | Lost — if uvicorn restarted, in-flight crawls vanished | Automatic — lease expires, task is recovered and retried |
-| **Retry logic** | None — a transient network error was a permanent failure | Exponential backoff, up to 5 retries with jitter |
-| **Resource isolation** | Crawl tasks competed with API request handling on the same event loop | Worker runs in a separate process/container |
-| **Horizontal scaling** | Single process only | Multiple workers with `FOR UPDATE SKIP LOCKED` claim semantics |
-| **Observability** | No audit trail | Full task history: attempts, errors, lease owners, timestamps |
-| **Restart tolerance** | `docker compose restart backend` killed active crawls | Worker keeps going independently |
+## Features
 
-### Why DB Polling for SSE Instead of Redis/In-Memory Pub/Sub?
+- **2-tier crawling** — httpx for static sites, Playwright (headless Chromium) auto-fallback for SPAs
+- **Smart SPA detection** — output-quality probe: if static fetch yields few links, Playwright renders the page and promotes the domain to JS mode
+- **Live visualization** — real-time SSE feed showing each page as it's discovered
+- **LLM-powered organization** — GPT selects and groups the most important pages into clean sections
+- **Inline editing** — edit the generated llms.txt directly in the browser
+- **Scheduled re-crawls** — cron-based monitoring with incremental change detection
+- **Version history** — every generation is versioned with diff tracking
+- **Durable task queue** — Postgres-backed with lease ownership, retry with backoff, and crash recovery
 
-The SSE endpoint polls the database every 1 second for new pages and progress updates. This replaces the original in-memory pub/sub (asyncio.Queue fanout). The trade-offs:
+## Quick Start
 
-| | In-Memory Pub/Sub | DB Polling |
-|---|---|---|
-| Latency | ~instant | ~1s |
-| Works across processes | No (API + worker must share memory) | Yes |
-| Survives API restart | No | Yes (pages already persisted) |
-| Replay completed crawls | Requires separate logic | Free — pages are already in the DB |
-| Extra infrastructure | None (but tightly couples API and worker) | None |
+```bash
+# Clone
+git clone https://github.com/smidthebest/llmstxt-generator.git
+cd llmstxt-generator
 
-DB polling was chosen because: (1) it works naturally with the separate worker process, (2) completed crawls can be replayed for free by querying stored pages, (3) the 1s latency is imperceptible when pages arrive every ~200ms+ anyway, and (4) it avoids adding Redis as another infrastructure dependency.
+# Set OpenAI key for LLM-powered generation (optional — falls back to template)
+export LLMSTXT_OPENAI_KEY=sk-...
 
-### Task Queue Design
+# Start everything
+docker compose up -d --build
 
-The `crawl_tasks` table implements a durable task queue with the following guarantees:
+# Open browser
+open http://localhost:3000
+```
 
-- **Atomic claim** — `SELECT ... FOR UPDATE SKIP LOCKED` ensures exactly-once delivery even with multiple workers polling concurrently.
-- **Lease-based ownership** — Each claimed task has a `leased_until` timestamp. The worker renews the lease every 10s via a heartbeat loop running as an `asyncio.Task`.
-- **Automatic recovery** — The worker loop checks for expired leases on every poll cycle and moves stale tasks back to `failed` status for retry.
-- **Idempotency** — Scheduled crawls use an idempotency key (`cron-{site_id}-{date}`) to prevent duplicate task creation when the scheduler fires.
-- **Retry with backoff** — Failed tasks are retried with jittered exponential backoff: `15s * 2^(attempt-1) * (1 + random(0, 0.2))`.
-- **Fail-fast under timeout storms** — Crawler-level timeout circuit opens on unhealthy domains and aborts the attempt early; task queue retry/backoff handles recovery.
-- **Dead letter** — Tasks exceeding `max_attempts` (default 5) are moved to `dead_letter` status rather than retrying forever.
-- **Row-level locking** — All task state transitions (claim, heartbeat, complete, fail, recover) use `FOR UPDATE SKIP LOCKED` to prevent race conditions between the worker and the recovery loop.
+API docs available at `http://localhost:8000/docs`.
+
+## Configuration
+
+Key environment variables (set in `docker-compose.yml` or `.env`):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LLMSTXT_OPENAI_KEY` | _(empty)_ | OpenAI API key. Falls back to template generation if unset. |
+| `LLM_MODEL` | `gpt-5.2` | OpenAI model for llms.txt generation |
+| `MAX_CRAWL_PAGES` | `200` | Default max pages per crawl |
+| `MAX_CRAWL_DEPTH` | `3` | Default BFS depth (1-5) |
+| `CRAWL_CONCURRENCY` | `20` | Concurrent fetch workers per crawl |
+
+See `backend/app/config.py` for the full list of configuration options.
+
+## Deployment (Railway)
+
+The app runs on [Railway](https://railway.com) as four services from one repo.
+
+### Setup
+
+1. Create a Railway project with a **PostgreSQL** database
+
+2. Add three services from the GitHub repo:
+
+   | Service | Root Directory | Start Command |
+   |---------|---------------|---------------|
+   | **backend** | `backend` | `alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT` |
+   | **worker** | `backend` | `until alembic upgrade head; do sleep 2; done && python -m app.worker` |
+   | **frontend** | `frontend` | _(Dockerfile handles it)_ |
+
+3. Set environment variables:
+
+   **Backend + Worker** (shared):
+   - `DATABASE_URL` → `${{Postgres.DATABASE_URL}}`
+   - `LLMSTXT_OPENAI_KEY` → your key
+   - `LLM_MODEL` → `gpt-4.1`
+
+   **Backend only**: `CORS_ORIGINS` → `["https://your-frontend.up.railway.app"]`, `RUN_SCHEDULER` → `false`
+
+   **Worker only**: `RUN_SCHEDULER` → `true`
+
+   **Frontend only**: `VITE_API_URL` → `https://your-backend.up.railway.app/api` _(build-time variable — redeploy after changing)_
+
+4. Generate public domains for backend and frontend in Railway networking settings
+
+5. Set watch paths to prevent cross-service rebuilds: `backend/**` for backend/worker, `frontend/**` for frontend
+
+### Scaling
+
+Both the API and worker services scale horizontally by increasing replicas in Railway. Workers use `FOR UPDATE SKIP LOCKED` for atomic task claiming — no duplicate work, no configuration needed.
+
+[Screenshot: Schedule configuration — cron expression input with next run preview]
+
+[Screenshot: Version history — list of previous generations with timestamps]
 
 ## API Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/api/sites` | Create a new site and start initial crawl |
+| `POST` | `/api/sites` | Create site + start initial crawl |
 | `GET` | `/api/sites` | List all sites |
-| `GET` | `/api/sites/{id}` | Get site details |
-| `DELETE` | `/api/sites/{id}` | Delete a site and all associated data |
-| `POST` | `/api/sites/{id}/crawl` | Start a new crawl (accepts `max_depth`, `max_pages`) |
-| `GET` | `/api/sites/{id}/crawl` | List crawl jobs for a site |
-| `GET` | `/api/sites/{id}/crawl/{jobId}` | Get crawl job status |
-| `GET` | `/api/sites/{id}/crawl/{jobId}/stream` | SSE stream of live crawl events |
-| `GET` | `/api/sites/{id}/pages` | List crawled pages |
-| `GET` | `/api/sites/{id}/llms-txt` | Get latest generated llms.txt |
-| `PUT` | `/api/sites/{id}/llms-txt` | Update llms.txt content (manual edit) |
-| `GET` | `/api/sites/{id}/llms-txt/history` | List all generated llms.txt versions |
-| `PUT` | `/api/sites/{id}/schedule` | Create or update a crawl schedule |
-| `GET` | `/api/sites/{id}/schedule` | Get current schedule |
-| `DELETE` | `/api/sites/{id}/schedule` | Delete a schedule |
+| `DELETE` | `/api/sites/{id}` | Delete site and all data |
+| `POST` | `/api/sites/{id}/crawl` | Start a new crawl |
+| `GET` | `/api/sites/{id}/crawl/{jobId}/stream` | SSE live crawl feed |
+| `GET` | `/api/sites/{id}/llms-txt` | Get latest llms.txt |
+| `PUT` | `/api/sites/{id}/llms-txt` | Save manual edits |
+| `GET` | `/api/sites/{id}/llms-txt/history` | Version history |
+| `PUT` | `/api/sites/{id}/schedule` | Set crawl schedule |
 
-## Project Structure
-
-```
-profound_takehome/
-├── backend/
-│   ├── app/
-│   │   ├── main.py              # FastAPI app, CORS, router registration
-│   │   ├── config.py            # Pydantic settings (env vars)
-│   │   ├── database.py          # Async SQLAlchemy engine + session factory
-│   │   ├── worker.py            # Worker process entry point
-│   │   ├── models/              # SQLAlchemy ORM models
-│   │   │   ├── site.py
-│   │   │   ├── page.py
-│   │   │   ├── crawl_job.py
-│   │   │   ├── crawl_task.py    # Task queue model
-│   │   │   ├── generated_file.py
-│   │   │   └── monitoring_schedule.py
-│   │   ├── routers/             # FastAPI route handlers
-│   │   │   ├── sites.py
-│   │   │   ├── crawl.py         # Crawl management + SSE stream
-│   │   │   ├── pages.py
-│   │   │   ├── llms_txt.py
-│   │   │   └── schedules.py
-│   │   ├── services/
-│   │   │   ├── crawler.py       # BFS web crawler (httpx + Playwright fallback)
-│   │   │   ├── browser_pool.py  # Singleton Playwright BrowserPool (lazy Chromium, semaphore-gated)
-│   │   │   ├── extractor.py     # HTML metadata extraction
-│   │   │   ├── categorizer.py   # URL-based page categorization + relevance
-│   │   │   ├── generator.py     # Template-based llms.txt generation
-│   │   │   ├── llm_generator.py # LLM-powered llms.txt generation
-│   │   │   ├── task_queue.py    # DB-backed task queue operations
-│   │   │   └── scheduler.py     # APScheduler integration
-│   │   ├── tasks/
-│   │   │   └── crawl_task.py    # Crawl job execution pipeline
-│   │   └── schemas/             # Pydantic request/response schemas
-│   ├── alembic/                 # Database migrations
-│   ├── requirements.txt
-│   └── Dockerfile
-├── frontend/
-│   ├── src/
-│   │   ├── api/client.ts        # Typed API client (axios)
-│   │   ├── hooks/
-│   │   │   ├── useCrawlStream.ts  # SSE EventSource React hook
-│   │   │   ├── useCrawlStatus.ts  # Polling-based crawl job status
-│   │   │   └── useSites.ts        # Site list query hook
-│   │   ├── components/
-│   │   │   ├── UrlInput.tsx
-│   │   │   ├── CrawlVisualization.tsx  # Live crawl feed
-│   │   │   ├── CrawlConfigPanel.tsx    # Advanced crawl settings
-│   │   │   ├── LlmsTxtPreview.tsx      # Rendered llms.txt preview
-│   │   │   ├── LlmsTxtEditor.tsx       # CodeMirror markdown editor
-│   │   │   └── ScheduleConfig.tsx      # Cron schedule UI
-│   │   └── pages/
-│   │       ├── HomePage.tsx
-│   │       ├── SitePage.tsx
-│   │       └── HistoryPage.tsx
-│   ├── nginx.conf
-│   ├── package.json
-│   └── Dockerfile
-└── docker-compose.yml
-```
+Full interactive docs at `/docs` (Swagger UI).
