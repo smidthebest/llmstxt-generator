@@ -9,13 +9,17 @@ const ACTIVE_STATUSES = new Set(["pending", "running", "generating"]);
 function formatRelative(value: string | null): string {
   if (!value) return "--";
   const diffMs = Date.now() - new Date(value).getTime();
-  if (diffMs < 60_000) return "just now";
-  const minutes = Math.floor(diffMs / 60_000);
-  if (minutes < 60) return `${minutes}m ago`;
+  const absDiff = Math.abs(diffMs);
+  const future = diffMs < 0;
+  const suffix = future ? "" : " ago";
+  const prefix = future ? "in " : "";
+  if (absDiff < 60_000) return future ? "in <1m" : "just now";
+  const minutes = Math.floor(absDiff / 60_000);
+  if (minutes < 60) return `${prefix}${minutes}m${suffix}`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
+  if (hours < 24) return `${prefix}${hours}h${suffix}`;
   const days = Math.floor(hours / 24);
-  return `${days}d ago`;
+  return `${prefix}${days}d${suffix}`;
 }
 
 function statusUi(status: SiteOverview["latest_crawl_status"]) {
