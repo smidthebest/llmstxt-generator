@@ -132,9 +132,6 @@ export default function HistoryPage() {
       <div className="flex flex-wrap items-end justify-between gap-4 mb-8">
         <div>
           <h1 className="font-display text-3xl font-bold text-[#f0f0f0]">Sites</h1>
-          <p className="text-xs tracking-wider text-[#bbb] mt-2">
-            Manage crawl state, generation status, and monitoring actions.
-          </p>
         </div>
         <Link
           to="/"
