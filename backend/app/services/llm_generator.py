@@ -12,8 +12,8 @@ from app.models.site import Site
 logger = logging.getLogger(__name__)
 
 # Hard cap on total pages in the final llms.txt (sections + optional combined).
-# Safety net in case the LLM ignores the "20 pages max" instruction.
-MAX_OUTPUT_PAGES = 30
+# Safety net in case the LLM over-selects.
+MAX_OUTPUT_PAGES = 75
 
 # Titles that indicate junk pages (case-insensitive match)
 _JUNK_TITLE_PATTERNS = [
