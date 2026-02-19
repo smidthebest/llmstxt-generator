@@ -40,6 +40,8 @@ async def run_crawl_job(
     max_pages: int | None = None,
 ) -> bool:
     """Execute a full crawl + categorize + generate pipeline."""
+    crawler: Crawler | None = None
+
     site = await db.get(Site, site_id)
     if not site:
         logger.error("Site %s not found", site_id)
@@ -207,6 +209,33 @@ async def run_crawl_job(
             "Crawl phase for %s: %.1fs (%d pages)",
             site.domain, t_crawl_end - t_crawl_start, len(crawl_results),
         )
+        crawl_health = crawler.health_summary()
+        logger.info(
+            "Crawl health for %s: req=%s timeout=%s rate=%.2f aborted=%s",
+            site.domain,
+            crawl_health["request_count"],
+            crawl_health["timeout_count"],
+            crawl_health["timeout_rate"],
+            crawl_health["aborted"],
+        )
+
+        if crawl_health["aborted"]:
+            job.change_summary_json = {
+                "aborted": True,
+                "abort_reason": crawl_health["abort_reason"],
+                "abort_detail": crawl_health["abort_detail"],
+                "request_count": crawl_health["request_count"],
+                "timeout_count": crawl_health["timeout_count"],
+                "timeout_rate": crawl_health["timeout_rate"],
+                "consecutive_timeouts": crawl_health["consecutive_timeouts"],
+                "circuit_open_count": crawl_health["circuit_open_count"],
+                "pages_crawled_so_far": len(crawl_results),
+            }
+            await db.commit()
+            raise RuntimeError(
+                "Crawl aborted due to sustained timeout pressure: "
+                f"{crawl_health['abort_reason']} ({crawl_health['abort_detail']})"
+            )
 
         # Update site title/description from root page
         if crawl_results:
@@ -225,7 +254,7 @@ async def run_crawl_job(
                 removed_urls.append(page_url)
 
         counts["removed"] = len(removed_urls)
-        pages_changed = counts["added"] + counts["updated"] + counts["removed"]
+        pages_changed = counts["added"] + counts["updated"]
 
         active_pages_result = await db.execute(
             select(Page)
@@ -234,7 +263,7 @@ async def run_crawl_job(
         )
         active_pages = active_pages_result.scalars().all()
 
-        job.pages_found = len(crawl_results)
+        job.pages_found = len(crawl_results) + crawler.skipped
         job.pages_crawled = len(crawl_results)
         job.pages_changed = pages_changed
         job.pages_added = counts["added"]
@@ -249,6 +278,10 @@ async def run_crawl_job(
             "unchanged": counts["unchanged"],
             "removed_urls": removed_urls[:50],
             "active_pages": len(active_pages),
+            "request_count": crawl_health["request_count"],
+            "timeout_count": crawl_health["timeout_count"],
+            "timeout_rate": crawl_health["timeout_rate"],
+            "circuit_open_count": crawl_health["circuit_open_count"],
         }
 
         latest_generated_result = await db.execute(
@@ -258,7 +291,7 @@ async def run_crawl_job(
             .limit(1)
         )
         latest_generated = latest_generated_result.scalar_one_or_none()
-        should_regenerate = pages_changed > 0 or latest_generated is None
+        should_regenerate = pages_changed > 0 or counts["removed"] > 0 or latest_generated is None
         job.llms_regenerated = should_regenerate
 
         if should_regenerate:
@@ -317,5 +350,21 @@ async def run_crawl_job(
         logger.exception("Crawl failed for site %s", site_id)
         job.status = "failed"
         job.error_message = str(exc)[:1024]
+        if crawler is not None:
+            health = crawler.health_summary()
+            summary = job.change_summary_json or {}
+            summary.update(
+                {
+                    "request_count": health["request_count"],
+                    "timeout_count": health["timeout_count"],
+                    "timeout_rate": health["timeout_rate"],
+                    "consecutive_timeouts": health["consecutive_timeouts"],
+                    "circuit_open_count": health["circuit_open_count"],
+                    "aborted": health["aborted"],
+                    "abort_reason": health["abort_reason"],
+                    "abort_detail": health["abort_detail"],
+                }
+            )
+            job.change_summary_json = summary
         await db.commit()
         return False

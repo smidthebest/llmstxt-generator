@@ -10,7 +10,6 @@ import {
 } from "../api/client";
 import { useCrawlStatus } from "../hooks/useCrawlStatus";
 import CrawlVisualization from "../components/CrawlVisualization";
-import CrawlConfigPanel from "../components/CrawlConfigPanel";
 import LlmsTxtPreview from "../components/LlmsTxtPreview";
 import LlmsTxtEditor from "../components/LlmsTxtEditor";
 import ScheduleConfig from "../components/ScheduleConfig";
@@ -48,7 +47,13 @@ export default function SitePage() {
   const { data: jobs } = useQuery({
     queryKey: ["crawlJobs", siteId],
     queryFn: () => listCrawlJobs(siteId),
-    refetchInterval: 3000,
+    refetchInterval: (query) => {
+      const list = query.state.data ?? [];
+      const hasActive = list.some((j) =>
+        j.status === "pending" || j.status === "running" || j.status === "generating"
+      );
+      return hasActive ? 3000 : 30000;
+    },
   });
 
   const { data: crawlJob, isLoading: crawlLoading } = useCrawlStatus(
@@ -75,7 +80,13 @@ export default function SitePage() {
 
   const recrawlMutation = useMutation({
     mutationFn: () => startCrawl(siteId, crawlConfig),
-    onSuccess: (job) => setActiveJobId(job.id),
+    onSuccess: (job) => {
+      // Pre-seed query cache so CrawlVisualization shows correct max_pages
+      // immediately instead of showing a loading shimmer
+      queryClient.setQueryData(["crawl", siteId, job.id], job);
+      setActiveJobId(job.id);
+      setTab("progress");
+    },
   });
 
   const initialTabSet = useRef(isRequestedTab(requestedTab));
@@ -159,11 +170,6 @@ export default function SitePage() {
         </button>
       </div>
 
-      {/* Advanced Config */}
-      <div className="mb-6">
-        <CrawlConfigPanel onChange={setCrawlConfig} initialConfig={crawlConfig} />
-      </div>
-
       {/* Tabs */}
       <div className="flex gap-6 mb-8 border-b border-[#383838]">
         {TABS.map((t) => (
@@ -237,7 +243,14 @@ export default function SitePage() {
       </div>
 
       <div className={tab === "schedule" ? "anim-enter" : "hidden"}>
-        <ScheduleConfig siteId={siteId} />
+        <ScheduleConfig
+          siteId={siteId}
+          latestCrawlAt={crawlJob?.updated_at ?? null}
+          onCrawlStarted={(jobId) => {
+            setActiveJobId(jobId);
+            setTab("progress");
+          }}
+        />
       </div>
     </div>
   );

@@ -55,7 +55,6 @@ class BrowserPool:
                     "--disable-gpu",
                     "--disable-dev-shm-usage",
                     "--disable-setuid-sandbox",
-                    "--single-process",
                     "--disable-extensions",
                     "--disable-background-networking",
                     "--disable-default-apps",
@@ -95,7 +94,17 @@ class BrowserPool:
                     return None
 
             try:
-                await page.goto(url, wait_until="networkidle", timeout=timeout_ms)
+                await page.goto(url, wait_until="load", timeout=timeout_ms)
+                # Give JS frameworks (Angular, React, Vue) time to render.
+                # Wait up to 5s for meaningful content to appear in the DOM.
+                try:
+                    await page.wait_for_function(
+                        "document.querySelectorAll('a[href]').length > 3"
+                        " || document.body.innerText.length > 500",
+                        timeout=5000,
+                    )
+                except Exception:
+                    pass  # timeout is fine — best-effort wait
                 html = await page.content()
                 return html
             except Exception:

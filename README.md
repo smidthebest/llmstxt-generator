@@ -4,9 +4,10 @@ A full-stack application that automatically generates [llms.txt](https://llmstxt
 
 ## Features
 
-- **Automated crawling** — BFS crawler with configurable depth (1-5) and page limit (50-500, default 500). Respects robots.txt, parses sitemaps (including recursive sitemap indices), skips binary files, and rate-limits requests.
+- **Automated crawling** — BFS crawler with configurable depth (1-5) and page limit (50-500, default 200). Respects robots.txt, parses sitemaps (including recursive sitemap indices), skips binary files, and rate-limits requests.
 - **2-tier fetch (httpx + Playwright)** — Static sites are crawled with httpx (fast, low-memory). JS-heavy SPAs (React, Next.js, Nuxt, Vue) are automatically detected and rendered with headless Chromium via Playwright. SPA detection uses a heuristic: mount-point div + low visible text + few links.
 - **Bot protection handling** — Detects common bot-protection patterns (Cloudflare challenge pages, CAPTCHAs). Falls back to sitemap-based crawling when the site blocks direct page fetches.
+- **Timeout pressure protection** — Progress-aware circuit breaker aborts timeout-heavy crawls early (instead of burning a worker indefinitely), then retries via durable queue backoff.
 - **Live crawl visualization** — Real-time SSE (Server-Sent Events) feed showing each URL as it's crawled, with title, description, category badge, depth indicator, and relevance score.
 - **Page categorization** — URL-pattern-based classification into categories like Documentation, API Reference, Guides, Getting Started, Examples, FAQ, Blog, etc.
 - **Relevance scoring** — Heuristic scoring based on page category, crawl depth, URL path length, and sitemap presence.
@@ -104,10 +105,21 @@ Environment variables (set in `docker-compose.yml` or via `.env`):
 | `RUN_SCHEDULER` | `false` (API) / `true` (worker) | Whether to run the APScheduler cron loop. |
 | `TASK_LEASE_SECONDS` | `60` | How long a worker lease lasts before expiry. |
 | `TASK_MAX_ATTEMPTS` | `5` | Maximum retry attempts before dead-lettering a task. |
-| `MAX_CRAWL_PAGES` | `500` | Default max pages per crawl (can be overridden per-crawl via API). |
+| `MAX_CRAWL_PAGES` | `200` | Default max pages per crawl (can be overridden per-crawl via API). |
 | `MAX_CRAWL_DEPTH` | `3` | Default max depth for BFS traversal (1-5). |
 | `CRAWL_CONCURRENCY` | `20` | Number of concurrent fetch workers per crawl job. |
 | `CRAWL_DELAY_MS` | `50` | Delay (ms) per worker between fetches for rate limiting. |
+| `CRAWL_REQUEST_TIMEOUT_SECONDS` | `15` | Per-request timeout for http fetches. |
+| `CRAWL_TIMEOUT_STREAK_THRESHOLD` | `8` | Consecutive timeouts needed to open timeout circuit. |
+| `CRAWL_TIMEOUT_RATE_THRESHOLD` | `0.7` | Timeout-rate threshold for unhealthy-domain detection. |
+| `CRAWL_TIMEOUT_MIN_SAMPLES` | `12` | Minimum request samples before timeout-rate logic applies. |
+| `CRAWL_PROGRESS_STALL_SECONDS` | `30` | Requires no crawl progress for this long before rate-based abort. |
+| `CRAWL_CIRCUIT_COOLDOWN_SECONDS` | `120` | Cooldown window recorded when timeout circuit opens. |
+| `CRAWL_MAX_DURATION_SECONDS` | `0` | Optional hard crawl duration cap; `0` disables it. |
+| `CRAWL_JS_PROBE_LOW_LINKS` | `1` | Trigger Playwright probe when crawlable links <= this. |
+| `CRAWL_JS_PROBE_MAX_DEPTH` | `1` | Only probe pages at this depth or shallower. |
+| `CRAWL_JS_PROBE_MAX_ATTEMPTS` | `3` | Max Playwright probes per crawl before giving up. |
+| `CRAWL_JS_PROBE_PROMOTE_LINKS` | `3` | Promote domain to JS mode if rendered links >= this. |
 | `WORKER_MAX_CONCURRENT_TASKS` | `3` | Max crawl jobs a single worker runs simultaneously. |
 
 ## Building from Source
@@ -226,10 +238,11 @@ The app is deployed on [Railway](https://railway.com) as four separate services.
 
 1. **Submit a URL** — The site is registered and a crawl task is enqueued
 2. **Crawl** — The worker claims the task and performs a BFS traversal, respecting robots.txt and fetching sitemap.xml. Pages are fetched with httpx (fast, static HTML). If an SPA is detected (e.g., React/Next.js app with empty `<div id="root">`), the crawler automatically switches to headless Chromium via Playwright for JS rendering.
-3. **Extract** — Each page is parsed for title, description, headings, and OG tags
-4. **Categorize** — URL-pattern heuristics assign categories (Documentation, API Reference, Guides, etc.) and compute relevance scores
-5. **Generate** — llms.txt is assembled following the spec, with sections ordered by relevance
-6. **Monitor** — Optional cron-based re-crawling tracks added/updated/removed/unchanged pages and regenerates `llms.txt` only when meaningful changes are detected
+3. **Protect** — If a domain enters sustained timeout pressure (timeout streak or timeout-rate + no-progress stall), the crawler aborts early and the task is retried with exponential backoff instead of occupying a worker for a long no-progress run.
+4. **Extract** — Each page is parsed for title, description, headings, and OG tags
+5. **Categorize** — URL-pattern heuristics assign categories (Documentation, API Reference, Guides, etc.) and compute relevance scores
+6. **Generate** — llms.txt is assembled following the spec, with sections ordered by relevance
+7. **Monitor** — Optional cron-based re-crawling tracks added/updated/removed/unchanged pages and regenerates `llms.txt` only when meaningful changes are detected
 
 ## Architecture
 
@@ -303,6 +316,7 @@ The `crawl_tasks` table implements a durable task queue with the following guara
 - **Automatic recovery** — The worker loop checks for expired leases on every poll cycle and moves stale tasks back to `failed` status for retry.
 - **Idempotency** — Scheduled crawls use an idempotency key (`cron-{site_id}-{date}`) to prevent duplicate task creation when the scheduler fires.
 - **Retry with backoff** — Failed tasks are retried with jittered exponential backoff: `15s * 2^(attempt-1) * (1 + random(0, 0.2))`.
+- **Fail-fast under timeout storms** — Crawler-level timeout circuit opens on unhealthy domains and aborts the attempt early; task queue retry/backoff handles recovery.
 - **Dead letter** — Tasks exceeding `max_attempts` (default 5) are moved to `dead_letter` status rather than retrying forever.
 - **Row-level locking** — All task state transitions (claim, heartbeat, complete, fail, recover) use `FOR UPDATE SKIP LOCKED` to prevent race conditions between the worker and the recovery loop.
 

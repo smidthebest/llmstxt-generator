@@ -23,6 +23,7 @@ OPTIONAL_THRESHOLD = 0.3
 def generate_llms_txt(site: Site, pages: list[Page]) -> tuple[str, str]:
     """Generate llms.txt content and return (content, content_hash)."""
     lines: list[str] = []
+    seen_urls: set[str] = set()
 
     # Header
     title = site.title or site.domain
@@ -36,6 +37,9 @@ def generate_llms_txt(site: Site, pages: list[Page]) -> tuple[str, str]:
     optional_pages: list[Page] = []
 
     for page in sorted(pages, key=lambda p: -p.relevance_score):
+        if page.url in seen_urls:
+            continue
+        seen_urls.add(page.url)
         if page.relevance_score < OPTIONAL_THRESHOLD:
             optional_pages.append(page)
         else:

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CrawlConfig } from "../api/client";
 
 interface Props {
@@ -6,10 +6,22 @@ interface Props {
   initialConfig?: CrawlConfig;
 }
 
+const DEFAULT_DEPTH = 3;
+const DEFAULT_PAGES = 200;
+
 export default function CrawlConfigPanel({ onChange, initialConfig }: Props) {
   const [open, setOpen] = useState(false);
-  const [maxDepth, setMaxDepth] = useState(initialConfig?.max_depth ?? 3);
-  const [maxPages, setMaxPages] = useState(initialConfig?.max_pages ?? 200);
+  const [maxDepth, setMaxDepth] = useState(initialConfig?.max_depth ?? DEFAULT_DEPTH);
+  const [maxPages, setMaxPages] = useState(initialConfig?.max_pages ?? DEFAULT_PAGES);
+  const synced = useRef(false);
+
+  // Sync parent on mount so crawlConfig always matches displayed values
+  useEffect(() => {
+    if (!synced.current) {
+      synced.current = true;
+      onChange({ max_depth: maxDepth, max_pages: maxPages });
+    }
+  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (initialConfig?.max_depth != null) setMaxDepth(initialConfig.max_depth);
@@ -33,7 +45,7 @@ export default function CrawlConfigPanel({ onChange, initialConfig }: Props) {
         onClick={() => setOpen(!open)}
         className="w-full flex items-center justify-between px-4 py-2 text-[10px] tracking-[0.15em] uppercase text-[#ccc] hover:text-[#f0f0f0] transition-colors"
       >
-        <span>Advanced Settings</span>
+        <span>Crawl Settings</span>
         <span
           className={`transition-transform duration-200 ${open ? "rotate-180" : ""}`}
         >

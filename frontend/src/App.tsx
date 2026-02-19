@@ -1,8 +1,14 @@
-import { BrowserRouter, Routes, Route, Link, useLocation } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Link, useLocation, useParams } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import HomePage from "./pages/HomePage";
 import SitePage from "./pages/SitePage";
 import HistoryPage from "./pages/HistoryPage";
+
+/** Wrapper that keys SitePage by :id so React fully remounts on site navigation */
+function SitePageKeyed() {
+  const { id } = useParams<{ id: string }>();
+  return <SitePage key={id} />;
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -34,7 +40,7 @@ function Layout() {
       <main className={!isHome ? "pt-12" : ""}>
         <Routes>
           <Route path="/" element={<HomePage />} />
-          <Route path="/sites/:id" element={<SitePage />} />
+          <Route path="/sites/:id" element={<SitePageKeyed />} />
           <Route path="/history" element={<HistoryPage />} />
         </Routes>
       </main>

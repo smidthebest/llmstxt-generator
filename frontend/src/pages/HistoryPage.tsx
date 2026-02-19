@@ -98,6 +98,7 @@ export default function HistoryPage() {
       queryClient.invalidateQueries({ queryKey: ["sites"] });
       queryClient.invalidateQueries({ queryKey: ["sitesOverview"] });
     },
+    onError: () => alert("Failed to delete site. Please try again."),
   });
 
   const recrawlMutation = useMutation({
@@ -107,6 +108,7 @@ export default function HistoryPage() {
       queryClient.invalidateQueries({ queryKey: ["crawlJobs", siteId] });
       queryClient.invalidateQueries({ queryKey: ["site", siteId] });
     },
+    onError: () => alert("Failed to start crawl. Please try again."),
   });
 
   const stats = useMemo(() => {

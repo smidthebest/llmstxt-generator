@@ -15,9 +15,23 @@ class Settings(BaseSettings):
             )
         return self
     max_crawl_depth: int = 3
-    max_crawl_pages: int = 500
+    max_crawl_pages: int = 200
     crawl_concurrency: int = 20
     crawl_delay_ms: int = 50
+    crawl_request_timeout_seconds: float = 15.0
+    crawl_timeout_streak_threshold: int = 8
+    crawl_timeout_rate_threshold: float = 0.7
+    crawl_timeout_min_samples: int = 12
+    crawl_progress_stall_seconds: int = 30
+    crawl_circuit_cooldown_seconds: int = 120
+    # Safety valve. Disabled by default to avoid cutting off large healthy crawls.
+    crawl_max_duration_seconds: int = 0
+    # Low-yield Playwright probe: if a shallow page has very few crawlable
+    # links after static extraction, render it with Playwright and compare.
+    crawl_js_probe_low_links: int = 1
+    crawl_js_probe_max_depth: int = 1
+    crawl_js_probe_max_attempts: int = 3
+    crawl_js_probe_promote_links: int = 3
     llmstxt_openai_key: str = ""
     llm_model: str = "gpt-5.2"
 

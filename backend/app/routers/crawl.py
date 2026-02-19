@@ -25,7 +25,7 @@ async def start_crawl(
     if not site:
         raise HTTPException(status_code=404, detail="Site not found")
 
-    job = CrawlJob(site_id=site_id, status="pending")
+    job = CrawlJob(site_id=site_id, status="pending", max_pages=config.max_pages)
     db.add(job)
     await db.commit()
     await db.refresh(job)

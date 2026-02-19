@@ -28,7 +28,11 @@ async def create_site(body: SiteCreate, db: AsyncSession = Depends(get_db)):
     existing = result.scalar_one_or_none()
     if existing:
         # Trigger a new crawl and return existing site
-        job = CrawlJob(site_id=existing.id, status="pending")
+        job = CrawlJob(
+            site_id=existing.id,
+            status="pending",
+            max_pages=body.max_pages,
+        )
         db.add(job)
         await db.commit()
         await db.refresh(job)
@@ -51,7 +55,11 @@ async def create_site(body: SiteCreate, db: AsyncSession = Depends(get_db)):
     await db.refresh(site)
 
     # Create crawl job and enqueue crawl task
-    job = CrawlJob(site_id=site.id, status="pending")
+    job = CrawlJob(
+        site_id=site.id,
+        status="pending",
+        max_pages=body.max_pages,
+    )
     db.add(job)
     await db.commit()
     await db.refresh(job)

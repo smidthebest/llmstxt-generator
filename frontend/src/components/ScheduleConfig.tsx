@@ -120,9 +120,11 @@ function timeSince(dateStr: string): string {
 
 interface Props {
   siteId: number;
+  onCrawlStarted?: (jobId: number) => void;
+  latestCrawlAt?: string | null;
 }
 
-export default function ScheduleConfig({ siteId }: Props) {
+export default function ScheduleConfig({ siteId, onCrawlStarted, latestCrawlAt }: Props) {
   const queryClient = useQueryClient();
 
   const [freq, setFreq] = useState<Frequency>("daily");
@@ -186,8 +188,10 @@ export default function ScheduleConfig({ siteId }: Props) {
 
   const runNowMutation = useMutation({
     mutationFn: () => startCrawl(siteId),
-    onSuccess: () => {
+    onSuccess: (job) => {
+      queryClient.setQueryData(["crawl", siteId, job.id], job);
       queryClient.invalidateQueries({ queryKey: ["crawlJobs", siteId] });
+      onCrawlStarted?.(job.id);
     },
   });
 
@@ -240,20 +244,27 @@ export default function ScheduleConfig({ siteId }: Props) {
             </div>
             <div>
               <span className="text-[10px] tracking-[0.15em] uppercase text-[#888] block mb-1">
-                Last run
+                Last crawl
               </span>
-              {schedule.last_run_at ? (
-                <div>
-                  <span className="text-sm text-[#f0f0f0] font-mono">
-                    {timeSince(schedule.last_run_at)}
-                  </span>
-                  <span className="block text-[10px] text-[#888] font-mono mt-0.5">
-                    {new Date(schedule.last_run_at).toLocaleString()}
-                  </span>
-                </div>
-              ) : (
-                <span className="text-sm text-[#555]">Never</span>
-              )}
+              {(() => {
+                // Show the most recent crawl time, whether scheduled or ad-hoc
+                const candidates = [schedule.last_run_at, latestCrawlAt].filter(Boolean) as string[];
+                const latest = candidates.length > 0
+                  ? candidates.reduce((a, b) => new Date(a) > new Date(b) ? a : b)
+                  : null;
+                return latest ? (
+                  <div>
+                    <span className="text-sm text-[#f0f0f0] font-mono">
+                      {timeSince(latest)}
+                    </span>
+                    <span className="block text-[10px] text-[#888] font-mono mt-0.5">
+                      {new Date(latest).toLocaleString()}
+                    </span>
+                  </div>
+                ) : (
+                  <span className="text-sm text-[#555]">Never</span>
+                );
+              })()}
             </div>
           </div>
 
@@ -472,7 +483,10 @@ export default function ScheduleConfig({ siteId }: Props) {
           </button>
           {schedule && (
             <button
-              onClick={() => deleteMutation.mutate()}
+              onClick={() => {
+                if (!confirm("Remove this schedule?")) return;
+                deleteMutation.mutate();
+              }}
               disabled={deleteMutation.isPending}
               className="text-xs tracking-widest uppercase text-[#888] hover:text-red-400/80 transition-colors"
             >

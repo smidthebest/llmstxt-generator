@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 class CrawlConfig(BaseModel):
     max_depth: int = Field(default=3, ge=1, le=5)
-    max_pages: int = Field(default=500, ge=50, le=500)
+    max_pages: int = Field(default=200, ge=50, le=500)
 
 
 class CrawlJobResponse(BaseModel):

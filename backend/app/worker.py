@@ -78,6 +78,10 @@ async def process_task(task_id: int, worker_id: str) -> None:
                 max_depth=max_depth,
                 max_pages=max_pages,
             )
+            if not success and task.crawl_job_id:
+                job = await db.get(CrawlJob, task.crawl_job_id)
+                if job and job.error_message:
+                    failure_error = job.error_message
     except Exception as exc:
         logger.exception("Unhandled worker exception for task=%s", task_id)
         failure_error = str(exc)
@@ -149,7 +153,10 @@ async def worker_loop(stop_event: asyncio.Event, worker_id: str) -> None:
 
         now = asyncio.get_running_loop().time()
         if settings.run_scheduler and now >= next_scheduler_sync:
-            await sync_schedules_from_db()
+            try:
+                await sync_schedules_from_db()
+            except Exception:
+                logger.exception("Failed to sync schedules from DB")
             next_scheduler_sync = now + scheduler_sync_interval
 
         async with async_session() as db:

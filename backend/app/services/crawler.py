@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import re
+import time
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
@@ -63,41 +64,6 @@ def _is_bot_protected(html: str) -> bool:
     return any(pattern.search(sample) for pattern in _BOT_PROTECTION_PATTERNS)
 
 
-_SPA_MOUNT_IDS = {"root", "app", "__next", "__nuxt", "gatsby-focus-wrapper"}
-
-
-def _is_spa_page(html: str) -> bool:
-    """Detect if the page is a client-rendered SPA with no server-side content.
-
-    Conditions (all must be true):
-    1. Has a known SPA mount-point div (id="root", "app", "__next", etc.)
-    2. Very little visible text in <body> (< 200 chars)
-    3. Very few <a> links (< 3)
-    """
-    from bs4 import BeautifulSoup
-
-    soup = BeautifulSoup(html, "lxml")
-    body = soup.body
-    if not body:
-        return False
-
-    # Check for SPA mount points
-    has_mount = any(
-        body.find(id=mid) is not None for mid in _SPA_MOUNT_IDS
-    )
-    if not has_mount:
-        return False
-
-    # Strip non-content tags
-    for tag in body(["script", "style", "noscript", "template", "svg"]):
-        tag.decompose()
-
-    visible_text = body.get_text(strip=True)
-    link_count = len(body.find_all("a", href=True))
-
-    return len(visible_text) < 200 and link_count < 3
-
-
 @dataclass
 class ExistingPageState:
     title: str | None
@@ -142,10 +108,113 @@ class Crawler:
         self.robot_parser: RobotExclusionRulesParser | None = None
         self._blocked_count: int = 0
         self._use_playwright: bool = False
+        self._js_probe_attempts: int = 0
+        self._js_probe_failures: int = 0
+        self._started_at_monotonic: float | None = None
+        self._last_progress_at_monotonic: float | None = None
+        self._request_count: int = 0
+        self._timeout_count: int = 0
+        self._consecutive_timeouts: int = 0
+        self._success_count: int = 0
+        self._circuit_open_count: int = 0
+        self._circuit_open_until_monotonic: float | None = None
+        self._abort_reason: str | None = None
+        self._abort_detail: str | None = None
+
+    def _timeout_rate(self) -> float:
+        if self._request_count == 0:
+            return 0.0
+        return self._timeout_count / self._request_count
+
+    def _mark_progress(self) -> None:
+        self._last_progress_at_monotonic = time.monotonic()
+
+    def _record_non_timeout_attempt(self) -> None:
+        self._request_count += 1
+        self._consecutive_timeouts = 0
+
+    def _record_timeout(self) -> None:
+        self._request_count += 1
+        self._timeout_count += 1
+        self._consecutive_timeouts += 1
+
+    def _abort_crawl(self, reason: str, detail: str) -> None:
+        if self._abort_reason is not None:
+            return
+        self._abort_reason = reason
+        self._abort_detail = detail[:400]
+        logger.warning("Aborting crawl for %s: %s", self.domain, self._abort_detail)
+
+    def _check_duration_budget(self) -> None:
+        max_duration = settings.crawl_max_duration_seconds
+        if self._abort_reason is not None or max_duration <= 0:
+            return
+        if self._started_at_monotonic is None:
+            return
+        elapsed = time.monotonic() - self._started_at_monotonic
+        if elapsed > max_duration:
+            self._abort_crawl(
+                "duration_budget_exceeded",
+                f"elapsed={elapsed:.1f}s budget={max_duration}s",
+            )
+
+    def _check_timeout_circuit(self, url: str) -> None:
+        if self._abort_reason is not None:
+            return
+
+        now = time.monotonic()
+        last_progress = self._last_progress_at_monotonic or self._started_at_monotonic or now
+        stalled_for = max(0.0, now - last_progress)
+        timeout_rate = self._timeout_rate()
+
+        streak_hit = (
+            self._consecutive_timeouts >= settings.crawl_timeout_streak_threshold
+            and self._request_count >= settings.crawl_timeout_min_samples
+        )
+
+        rate_hit = (
+            self._request_count >= settings.crawl_timeout_min_samples
+            and timeout_rate >= settings.crawl_timeout_rate_threshold
+            and stalled_for >= settings.crawl_progress_stall_seconds
+        )
+
+        if not (streak_hit or rate_hit):
+            return
+
+        self._circuit_open_count += 1
+        self._circuit_open_until_monotonic = now + max(
+            settings.crawl_circuit_cooldown_seconds, 0
+        )
+        trigger = "streak" if streak_hit else "rate+stall"
+        self._abort_crawl(
+            "timeout_circuit_open",
+            (
+                f"trigger={trigger} url={url} "
+                f"timeouts={self._timeout_count}/{self._request_count} "
+                f"streak={self._consecutive_timeouts} stalled_for={stalled_for:.1f}s"
+            ),
+        )
+
+    def health_summary(self) -> dict:
+        timeout_rate = self._timeout_rate()
+        return {
+            "request_count": self._request_count,
+            "timeout_count": self._timeout_count,
+            "timeout_rate": round(timeout_rate, 4),
+            "consecutive_timeouts": self._consecutive_timeouts,
+            "success_count": self._success_count,
+            "circuit_open_count": self._circuit_open_count,
+            "aborted": self._abort_reason is not None,
+            "abort_reason": self._abort_reason,
+            "abort_detail": self._abort_detail,
+            "js_probe_attempts": self._js_probe_attempts,
+            "js_probe_failures": self._js_probe_failures,
+            "js_mode": self._use_playwright,
+        }
 
     async def crawl(self) -> list[tuple[PageMetadata, int]]:
         async with httpx.AsyncClient(
-            timeout=15.0,
+            timeout=settings.crawl_request_timeout_seconds,
             follow_redirects=True,
             http2=True,
             headers=BROWSER_HEADERS,
@@ -155,6 +224,8 @@ class Crawler:
             ),
         ) as client:
             self.client = client
+            self._started_at_monotonic = time.monotonic()
+            self._mark_progress()
 
             # Resolve redirects so self.domain matches the final host
             # (e.g. cnn.com → www.cnn.com)
@@ -192,7 +263,12 @@ class Crawler:
 
             # If we got no results and any pages were blocked, fall back to
             # building pages from sitemap URLs alone.
-            if not self.results and sitemap_urls and self._blocked_count > 0:
+            if (
+                self._abort_reason is None
+                and not self.results
+                and sitemap_urls
+                and self._blocked_count > 0
+            ):
                 logger.info(
                     "Site %s is bot-protected; falling back to %d sitemap URLs",
                     self.domain,
@@ -241,6 +317,13 @@ class Crawler:
         while True:
             url, depth = await self._queue.get()
             try:
+                if self._abort_reason is not None:
+                    continue
+
+                self._check_duration_budget()
+                if self._abort_reason is not None:
+                    continue
+
                 url = self._normalize_url(url)
                 if url in self.visited or depth > self.max_depth:
                     continue
@@ -251,7 +334,11 @@ class Crawler:
                 if self.delay > 0:
                     await asyncio.sleep(self.delay)
 
-                metadata, skip_reason = await self._fetch_page(url)
+                self._check_duration_budget()
+                if self._abort_reason is not None:
+                    continue
+
+                metadata, skip_reason = await self._fetch_page(url, depth)
 
                 if metadata is None:
                     if skip_reason and self.on_page_skipped:
@@ -267,6 +354,8 @@ class Crawler:
                 if metadata.url not in self.visited:
                     self.visited.add(metadata.url)
                 self.results.append((metadata, depth))
+                self._success_count += 1
+                self._mark_progress()
                 if self.on_page_crawled:
                     await self.on_page_crawled(
                         metadata, depth, len(self.results), len(self.visited)
@@ -293,8 +382,8 @@ class Crawler:
             return None, "Empty content after JS render"
         return metadata, None
 
-    async def _fetch_page(self, url: str) -> tuple[PageMetadata | None, str | None]:
-        # ── Tier 2 fast-path: domain already flagged as SPA ──
+    async def _fetch_page(self, url: str, depth: int = 0) -> tuple[PageMetadata | None, str | None]:
+        # ── Tier 2 fast-path: domain already promoted to JS mode ──
         if self._use_playwright:
             metadata, render_error = await self._render_with_playwright(url)
             if metadata is not None:
@@ -317,6 +406,7 @@ class Crawler:
                 headers["If-Modified-Since"] = existing.last_modified
 
             resp = await self.client.get(url, headers=headers)
+            self._record_non_timeout_attempt()
 
             if resp.status_code == 304:
                 if not existing:
@@ -362,17 +452,6 @@ class Crawler:
                     return result
                 return None, "Bot protection (challenge page)"
 
-            # Detect SPA — switch to Playwright for this + all future pages
-            if _is_spa_page(html_text):
-                logger.info("SPA detected on %s, trying Playwright", self.domain)
-                result = await self._render_with_playwright(url)
-                if result[0] is not None:
-                    self._use_playwright = True
-                    logger.info("Playwright rendering enabled for %s", self.domain)
-                    return result
-                # Playwright unavailable or failed — return whatever httpx got
-                logger.warning("Playwright unavailable, using raw httpx HTML for SPA")
-
             final_url = self._normalize_url(str(resp.url))
             metadata = extract_metadata(
                 final_url,
@@ -383,8 +462,54 @@ class Crawler:
             )
             if metadata is None:
                 return None, "Empty or unparseable HTML"
+
+            # ── Low-yield probe ──
+            # If the page yielded very few crawlable links at a shallow depth,
+            # try a Playwright render.  If JS rendering produces materially
+            # more links, promote the entire domain to Playwright mode.
+            if (
+                not self._use_playwright
+                and depth <= settings.crawl_js_probe_max_depth
+                and self._js_probe_attempts < settings.crawl_js_probe_max_attempts
+                and self._js_probe_failures < 2
+            ):
+                crawlable = sum(
+                    1 for link in metadata.links if self._should_crawl(link)
+                )
+                if crawlable <= settings.crawl_js_probe_low_links:
+                    self._js_probe_attempts += 1
+                    rendered, _err = await self._render_with_playwright(url)
+                    if rendered is not None:
+                        rendered_crawlable = sum(
+                            1 for link in rendered.links
+                            if self._should_crawl(link)
+                        )
+                        if rendered_crawlable >= settings.crawl_js_probe_promote_links:
+                            self._use_playwright = True
+                            logger.info(
+                                "JS probe promoted %s to Playwright mode "
+                                "(static=%d links, rendered=%d links)",
+                                self.domain,
+                                crawlable,
+                                rendered_crawlable,
+                            )
+                            return rendered, None
+                        logger.info(
+                            "JS probe for %s: no improvement "
+                            "(static=%d, rendered=%d)",
+                            url, crawlable, rendered_crawlable,
+                        )
+                    else:
+                        self._js_probe_failures += 1
+                        logger.warning(
+                            "JS probe render failed for %s (attempt %d)",
+                            url, self._js_probe_attempts,
+                        )
+
             return metadata, None
         except httpx.TimeoutException:
+            self._record_timeout()
+            self._check_timeout_circuit(url)
             logger.warning("Timeout fetching %s", url)
             return None, "Timeout"
         except Exception as e:
