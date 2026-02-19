@@ -19,7 +19,7 @@ class CrawlTask(Base, TimestampMixin):
     available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     leased_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     lease_owner: Mapped[str | None] = mapped_column(String(255))
-    idempotency_key: Mapped[str | None] = mapped_column(String(255), unique=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(255))
     payload_json: Mapped[dict | None] = mapped_column(JSON)
     last_error: Mapped[str | None] = mapped_column(Text)
 
