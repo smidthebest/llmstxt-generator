@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   getSite,
@@ -25,9 +25,15 @@ const TABS: { key: Tab; label: string }[] = [
 
 export default function SitePage() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
   const siteId = Number(id);
   const queryClient = useQueryClient();
-  const [tab, setTab] = useState<Tab>("progress");
+  const requestedTab = searchParams.get("tab");
+  const isRequestedTab = (value: string | null): value is Tab =>
+    value === "progress" || value === "result" || value === "schedule";
+  const [tab, setTab] = useState<Tab>(
+    isRequestedTab(requestedTab) ? requestedTab : "progress"
+  );
   const [activeJobId, setActiveJobId] = useState<number | null>(null);
   const [editing, setEditing] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -72,7 +78,7 @@ export default function SitePage() {
     onSuccess: (job) => setActiveJobId(job.id),
   });
 
-  const initialTabSet = useRef(false);
+  const initialTabSet = useRef(isRequestedTab(requestedTab));
   useEffect(() => {
     if (jobs && jobs.length > 0 && activeJobId === null) {
       setActiveJobId(jobs[0].id);

@@ -1,6 +1,8 @@
 import hashlib
 import json
 import logging
+import time
+from collections import defaultdict
 
 from openai import AsyncOpenAI
 
@@ -9,6 +11,10 @@ from app.models.page import Page
 from app.models.site import Site
 
 logger = logging.getLogger(__name__)
+
+# Max pages to send to LLM for intelligent organization.
+# Pages beyond this are grouped by their pre-assigned category.
+LLM_PAGE_CAP = 150
 
 SYSTEM_PROMPT = """You are an expert at organizing website pages into a structured llms.txt file.
 
@@ -23,7 +29,7 @@ Your job is to output a JSON object that organizes these pages into logical sect
 
 Output format (strict JSON, no markdown, no explanation):
 {
-  "site_description": "A one-line description of this website",
+  "site_description": "A thorough description of this website",
   "sections": [
     {
       "name": "Section Name",
@@ -43,8 +49,7 @@ Rules:
 2. Order sections from most important to least important
 3. Deduplicate: if multiple pages cover the same content (e.g. versioned docs), include only the canonical/latest one
 4. Exclude truly useless pages (navigation-only, error pages, meta pages)
-5. Keep descriptions under 100 characters
-6. Use clean, readable titles (strip " - Wikipedia", " | Docs", etc. suffixes if redundant)"""
+5. Use clean, readable titles (strip " - Wikipedia", " | Docs", etc. suffixes if redundant)"""
 
 
 RESPONSE_SCHEMA = {
@@ -59,7 +64,7 @@ RESPONSE_SCHEMA = {
             "properties": {
                 "site_description": {
                     "type": "string",
-                    "description": "A one-line summary of what this website is about",
+                    "description": "A thorough summary of what this website is about",
                 },
                 "sections": {
                     "type": "array",
@@ -107,15 +112,33 @@ RESPONSE_SCHEMA = {
 async def generate_llms_txt_with_llm(site: Site, pages: list[Page]) -> tuple[str, str, str]:
     """Use an LLM to organize pages, then construct llms.txt with guaranteed-correct URLs.
 
+    If there are more than LLM_PAGE_CAP pages, only the top pages (by relevance)
+    are sent to the LLM. The rest are grouped by their pre-assigned category and
+    appended as additional sections. This keeps LLM latency under ~20s even for
+    500-page crawls.
+
     Returns (content, content_hash, site_description).
     """
 
     client = AsyncOpenAI(api_key=settings.llmstxt_openai_key)
 
+    # Sort by relevance (descending), then depth (ascending) for tie-breaking
+    sorted_pages = sorted(pages, key=lambda x: (-x.relevance_score, x.depth, x.url))
+
+    # Split into LLM-organized and overflow pages
+    llm_pages = sorted_pages[:LLM_PAGE_CAP]
+    overflow_pages = sorted_pages[LLM_PAGE_CAP:]
+
+    if overflow_pages:
+        logger.info(
+            "%s: sending %d/%d pages to LLM, %d overflow pages grouped by category",
+            site.domain, len(llm_pages), len(pages), len(overflow_pages),
+        )
+
     # Build page index: ID -> Page, and the prompt listing
     page_index: dict[int, Page] = {}
     page_lines = []
-    for i, p in enumerate(sorted(pages, key=lambda x: (x.depth, x.url))):
+    for i, p in enumerate(sorted(llm_pages, key=lambda x: (x.depth, x.url))):
         page_id = i + 1
         page_index[page_id] = p
         title = p.title or "(no title)"
@@ -128,11 +151,12 @@ async def generate_llms_txt_with_llm(site: Site, pages: list[Page]) -> tuple[str
 
     user_prompt = f"""Organize these pages from {site.title or site.domain} ({site.url}) into a structured llms.txt.
 
-{len(pages)} crawled pages:
+{len(llm_pages)} crawled pages:
 
 {pages_text}"""
 
     try:
+        t0 = time.monotonic()
         response = await client.chat.completions.create(
             model=settings.llm_model,
             messages=[
@@ -143,8 +167,17 @@ async def generate_llms_txt_with_llm(site: Site, pages: list[Page]) -> tuple[str
             max_completion_tokens=16384,
             response_format=RESPONSE_SCHEMA,
         )
+        t1 = time.monotonic()
 
         choice = response.choices[0]
+        usage = response.usage
+        logger.info(
+            "LLM API call for %s: %.1fs, %d input tokens, %d output tokens",
+            site.domain, t1 - t0,
+            usage.prompt_tokens if usage else 0,
+            usage.completion_tokens if usage else 0,
+        )
+
         if choice.finish_reason == "length":
             raise ValueError("LLM response truncated — too many pages for token limit")
         raw = choice.message.content or ""
@@ -153,14 +186,14 @@ async def generate_llms_txt_with_llm(site: Site, pages: list[Page]) -> tuple[str
         plan = json.loads(raw.strip())
 
         # Assemble llms.txt from the plan using REAL URLs from our database
-        content = _assemble_from_plan(site, page_index, plan)
+        content = _assemble_from_plan(site, page_index, plan, overflow_pages)
         content_hash = hashlib.sha256(content.encode()).hexdigest()
         site_description = plan.get("site_description", "")
-        logger.info(f"LLM generated llms.txt for {site.domain} ({len(content)} chars)")
+        logger.info("LLM generated llms.txt for %s (%d chars)", site.domain, len(content))
         return content, content_hash, site_description
 
     except Exception as e:
-        logger.exception(f"LLM generation failed for {site.domain}, falling back to deterministic")
+        logger.exception("LLM generation failed for %s, falling back to deterministic", site.domain)
         from app.services.generator import generate_llms_txt
         content, content_hash = generate_llms_txt(site, pages)
         return content, content_hash, ""
@@ -175,9 +208,14 @@ def _format_md_link(title: str, url: str, description: str | None) -> str:
 
 
 def _assemble_from_plan(
-    site: Site, page_index: dict[int, Page], plan: dict
+    site: Site, page_index: dict[int, Page], plan: dict,
+    overflow_pages: list[Page] | None = None,
 ) -> str:
-    """Build llms.txt Markdown from the LLM's JSON plan + our real page data."""
+    """Build llms.txt Markdown from the LLM's JSON plan + our real page data.
+
+    If overflow_pages is provided, they are appended as additional sections
+    grouped by their pre-assigned category (from the categorizer).
+    """
     lines: list[str] = []
 
     # Header
@@ -188,13 +226,17 @@ def _assemble_from_plan(
         lines.append(f"\n> {site_desc}")
     lines.append("")
 
-    # Sections
+    # Track which section names the LLM used (for dedup with overflow)
+    llm_section_names: set[str] = set()
+
+    # Sections from LLM plan
     for section in plan.get("sections", []):
         section_name = section.get("name", "Other")
         section_pages = section.get("pages", [])
         if not section_pages:
             continue
 
+        llm_section_names.add(section_name.lower())
         lines.append(f"## {section_name}")
         lines.append("")
         for entry in section_pages:
@@ -209,7 +251,7 @@ def _assemble_from_plan(
             lines.append(_format_md_link(entry_title, page.url, entry_desc))
         lines.append("")
 
-    # Optional section
+    # Optional section from LLM plan
     optional_pages = plan.get("optional", [])
     if optional_pages:
         lines.append("## Optional")
@@ -224,5 +266,26 @@ def _assemble_from_plan(
             entry_desc = entry.get("description") or page.description
             lines.append(_format_md_link(entry_title, page.url, entry_desc))
         lines.append("")
+
+    # Append overflow pages grouped by category
+    if overflow_pages:
+        by_category: dict[str, list[Page]] = defaultdict(list)
+        for p in overflow_pages:
+            cat = p.category or "Other"
+            by_category[cat].append(p)
+
+        for cat_name in sorted(by_category.keys()):
+            cat_pages = by_category[cat_name]
+            # If LLM already created a similar section, prefix with "More"
+            display_name = cat_name
+            if cat_name.lower() in llm_section_names:
+                display_name = f"More {cat_name}"
+            lines.append(f"## {display_name}")
+            lines.append("")
+            for p in sorted(cat_pages, key=lambda x: (-x.relevance_score, x.url)):
+                p_title = p.title or p.url
+                p_desc = p.description
+                lines.append(_format_md_link(p_title, p.url, p_desc))
+            lines.append("")
 
     return "\n".join(lines)

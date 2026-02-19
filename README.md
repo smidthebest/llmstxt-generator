@@ -4,7 +4,9 @@ A full-stack application that automatically generates [llms.txt](https://llmstxt
 
 ## Features
 
-- **Automated crawling** — BFS crawler with configurable depth (1-5) and page limit (50-500). Respects robots.txt, parses sitemaps, skips binary files, and rate-limits requests.
+- **Automated crawling** — BFS crawler with configurable depth (1-5) and page limit (50-500, default 500). Respects robots.txt, parses sitemaps (including recursive sitemap indices), skips binary files, and rate-limits requests.
+- **2-tier fetch (httpx + Playwright)** — Static sites are crawled with httpx (fast, low-memory). JS-heavy SPAs (React, Next.js, Nuxt, Vue) are automatically detected and rendered with headless Chromium via Playwright. SPA detection uses a heuristic: mount-point div + low visible text + few links.
+- **Bot protection handling** — Detects common bot-protection patterns (Cloudflare challenge pages, CAPTCHAs). Falls back to sitemap-based crawling when the site blocks direct page fetches.
 - **Live crawl visualization** — Real-time SSE (Server-Sent Events) feed showing each URL as it's crawled, with title, description, category badge, depth indicator, and relevance score.
 - **Page categorization** — URL-pattern-based classification into categories like Documentation, API Reference, Guides, Getting Started, Examples, FAQ, Blog, etc.
 - **Relevance scoring** — Heuristic scoring based on page category, crawl depth, URL path length, and sitemap presence.
@@ -22,18 +24,19 @@ A full-stack application that automatically generates [llms.txt](https://llmstxt
 - **SQLAlchemy 2.0** — Async ORM with asyncpg driver
 - **PostgreSQL 16** — Primary datastore
 - **Alembic** — Database migrations
-- **httpx** — Async HTTP client for crawling
+- **httpx** — Async HTTP client for crawling (Tier 1: static sites)
+- **Playwright** — Headless Chromium for JS-rendered pages (Tier 2: SPAs, auto-detected)
 - **BeautifulSoup + lxml** — HTML parsing and metadata extraction
 - **APScheduler** — Cron-based scheduled re-crawls
 - **OpenAI SDK** — LLM-powered llms.txt generation
 
 ### Frontend
-- **React 19** + **TypeScript**
+- **React 18** + **TypeScript**
 - **Vite** — Build tooling
 - **TanStack Query** — Server state management with automatic polling
 - **Tailwind CSS** — Utility-first styling
 - **CodeMirror** — Markdown editor for llms.txt editing
-- **Nginx** — Static file serving + reverse proxy to backend
+- **Nginx** — Static file serving with cache-control headers
 
 ## Quick Start
 
@@ -89,13 +92,6 @@ npm run dev
 
 The frontend dev server proxies `/api` requests to `http://localhost:8000`.
 
-### Resetting the Database
-
-```bash
-docker compose down -v   # -v removes the pgdata volume
-docker compose up -d --build
-```
-
 ### Configuration
 
 Environment variables (set in `docker-compose.yml` or via `.env`):
@@ -108,11 +104,128 @@ Environment variables (set in `docker-compose.yml` or via `.env`):
 | `RUN_SCHEDULER` | `false` (API) / `true` (worker) | Whether to run the APScheduler cron loop. |
 | `TASK_LEASE_SECONDS` | `60` | How long a worker lease lasts before expiry. |
 | `TASK_MAX_ATTEMPTS` | `5` | Maximum retry attempts before dead-lettering a task. |
+| `MAX_CRAWL_PAGES` | `500` | Default max pages per crawl (can be overridden per-crawl via API). |
+| `MAX_CRAWL_DEPTH` | `3` | Default max depth for BFS traversal (1-5). |
+| `CRAWL_CONCURRENCY` | `20` | Number of concurrent fetch workers per crawl job. |
+| `CRAWL_DELAY_MS` | `50` | Delay (ms) per worker between fetches for rate limiting. |
+| `WORKER_MAX_CONCURRENT_TASKS` | `3` | Max crawl jobs a single worker runs simultaneously. |
+
+## Building from Source
+
+### Docker Compose (recommended)
+
+The entire stack runs via Docker Compose with four services: PostgreSQL, backend API, worker, and frontend.
+
+```bash
+# Clone the repo
+git clone https://github.com/smidthebest/llmstxt-generator.git
+cd llmstxt-generator
+
+# (Optional) Set OpenAI API key for LLM-powered generation
+export LLMSTXT_OPENAI_KEY=sk-...
+
+# Build and start all services
+docker compose up -d --build
+```
+
+This will:
+1. Start PostgreSQL 16 with a persistent volume
+2. Build the backend image (Python 3.12 + dependencies + Playwright Chromium)
+3. Run Alembic migrations automatically on startup
+4. Start the API server (FastAPI + uvicorn) on port 8000
+5. Start 2 worker replicas that consume the task queue and run crawl jobs
+6. Build the frontend (React + Vite) and serve via Nginx on port 3000
+
+**Note:** The worker Docker image includes Playwright and headless Chromium (~400MB added to image size) for rendering JS-heavy SPAs. This is installed via `playwright install --with-deps chromium` in the Dockerfile.
+
+### Rebuilding after code changes
+
+```bash
+# Rebuild and restart all services
+docker compose up -d --build
+
+# Rebuild only the backend/worker (same image)
+docker compose build backend worker && docker compose up -d backend worker
+
+# Rebuild only the frontend
+docker compose build frontend && docker compose up -d frontend
+
+# View logs
+docker compose logs -f worker    # Worker logs (crawl activity)
+docker compose logs -f backend   # API logs
+```
+
+### Resetting the database
+
+```bash
+docker compose down -v   # -v removes the pgdata volume
+docker compose up -d --build
+```
+
+## Deployment (Railway)
+
+The app is deployed on [Railway](https://railway.com) as four separate services.
+
+**Live URLs:**
+- Frontend: https://amusing-reprieve-production-ac49.up.railway.app
+- Backend API: https://llmstxt-generator-production-f4d3.up.railway.app/api
+- API Docs: https://llmstxt-generator-production-f4d3.up.railway.app/docs
+
+### Deploying Your Own Instance
+
+1. **Create a Railway project** and add a PostgreSQL database from the Railway dashboard.
+
+2. **Add three services** from the same GitHub repo, each with a different root directory:
+
+   | Service | Root Directory | Start Command |
+   |---------|---------------|---------------|
+   | **backend** | `backend` | `/bin/sh -c "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port $PORT"` |
+   | **worker** | `backend` | `/bin/sh -c "until alembic upgrade head; do echo waiting; sleep 2; done && exec python -m app.worker"` |
+   | **frontend** | `frontend` | _(none — Dockerfile CMD handles it)_ |
+
+3. **Set environment variables** for each service:
+
+   **Backend:**
+   | Variable | Value |
+   |----------|-------|
+   | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (Railway reference variable) |
+   | `CORS_ORIGINS` | `["https://your-frontend-domain.up.railway.app"]` |
+   | `LLMSTXT_OPENAI_KEY` | Your OpenAI API key |
+   | `LLM_MODEL` | `gpt-4.1` (or your preferred model) |
+   | `RUN_SCHEDULER` | `false` |
+
+   **Worker:**
+   | Variable | Value |
+   |----------|-------|
+   | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` |
+   | `LLMSTXT_OPENAI_KEY` | Your OpenAI API key |
+   | `LLM_MODEL` | `gpt-4.1` |
+   | `RUN_SCHEDULER` | `true` |
+
+   **Frontend:**
+   | Variable | Value |
+   |----------|-------|
+   | `VITE_API_URL` | `https://your-backend-domain.up.railway.app/api` |
+
+   > **Note:** `VITE_API_URL` is a build-time variable baked into the JS bundle by Vite. You must trigger a redeploy after changing it.
+
+4. **Generate a public domain** for the backend and frontend services in Railway's networking settings.
+
+5. **Set watch paths** to prevent cross-service rebuilds:
+   - Backend/Worker: `backend/**`
+   - Frontend: `frontend/**`
+
+### Key Railway Gotchas
+
+- **`DATABASE_URL` format**: Railway provides `postgresql://...` but SQLAlchemy+asyncpg needs `postgresql+asyncpg://...`. The app auto-transforms this in `config.py` via a pydantic `model_validator`.
+- **`$PORT` expansion**: Dockerfile `CMD ["exec", "form"]` doesn't expand env vars. Use `/bin/sh -c "..."` wrapper.
+- **No Docker Compose**: Railway doesn't use `docker-compose.yml`. Each service is configured independently on the project canvas.
+- **nginx `listen $PORT`**: The frontend Dockerfile copies `nginx.conf` to `/etc/nginx/templates/default.conf.template` so nginx's entrypoint substitutes `${PORT}` at runtime.
 
 ## How It Works
 
 1. **Submit a URL** — The site is registered and a crawl task is enqueued
-2. **Crawl** — The worker claims the task and performs a BFS traversal, respecting robots.txt and fetching sitemap.xml
+2. **Crawl** — The worker claims the task and performs a BFS traversal, respecting robots.txt and fetching sitemap.xml. Pages are fetched with httpx (fast, static HTML). If an SPA is detected (e.g., React/Next.js app with empty `<div id="root">`), the crawler automatically switches to headless Chromium via Playwright for JS rendering.
 3. **Extract** — Each page is parsed for title, description, headings, and OG tags
 4. **Categorize** — URL-pattern heuristics assign categories (Documentation, API Reference, Guides, etc.) and compute relevance scores
 5. **Generate** — llms.txt is assembled following the spec, with sections ordered by relevance
@@ -121,12 +234,13 @@ Environment variables (set in `docker-compose.yml` or via `.env`):
 ## Architecture
 
 ```
-┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐
-│ Frontend │────▶│  Nginx   │────▶│ FastAPI  │     │ Worker   │
-│  React   │     │  Proxy   │     │  (API)   │     │ Process  │
-└──────────┘     └──────────┘     └──────────┘     └──────────┘
-                                       │                 │
-                                       │    ┌────────────┘
+┌──────────┐     ┌──────────┐                       ┌──────────┐
+│ Frontend │     │  Nginx   │    ┌──────────┐       │ Worker   │
+│  React   │────▶│ (static) │    │ FastAPI  │       │ Process  │
+└──────────┘     └──────────┘    │  (API)   │       └──────────┘
+      │                          └──────────┘            │
+      │  VITE_API_URL (direct)        │                  │
+      └───────────────────────────────▶│    ┌────────────┘
                                        ▼    ▼
                                   ┌──────────────┐
                                   │  PostgreSQL  │
@@ -138,7 +252,7 @@ Environment variables (set in `docker-compose.yml` or via `.env`):
 
 | Service | Role |
 |---------|------|
-| **frontend** | React SPA served via Nginx. Proxies `/api/` to the backend. |
+| **frontend** | React SPA served via Nginx. Calls the backend API directly via `VITE_API_URL` (baked at build time). |
 | **backend** | FastAPI application. REST API, SSE streams, database management. Does not run crawl tasks directly. |
 | **worker** | Separate Python process. Polls the task queue, executes crawl jobs, generates llms.txt, runs the APScheduler for cron re-crawls. |
 | **db** | PostgreSQL 16. Stores sites, pages, crawl jobs, generated files, schedules, and the task queue. |
@@ -228,7 +342,7 @@ profound_takehome/
 │   │   │   ├── crawl_job.py
 │   │   │   ├── crawl_task.py    # Task queue model
 │   │   │   ├── generated_file.py
-│   │   │   └── schedule.py
+│   │   │   └── monitoring_schedule.py
 │   │   ├── routers/             # FastAPI route handlers
 │   │   │   ├── sites.py
 │   │   │   ├── crawl.py         # Crawl management + SSE stream
@@ -236,7 +350,8 @@ profound_takehome/
 │   │   │   ├── llms_txt.py
 │   │   │   └── schedules.py
 │   │   ├── services/
-│   │   │   ├── crawler.py       # BFS web crawler (httpx + asyncio)
+│   │   │   ├── crawler.py       # BFS web crawler (httpx + Playwright fallback)
+│   │   │   ├── browser_pool.py  # Singleton Playwright BrowserPool (lazy Chromium, semaphore-gated)
 │   │   │   ├── extractor.py     # HTML metadata extraction
 │   │   │   ├── categorizer.py   # URL-based page categorization + relevance
 │   │   │   ├── generator.py     # Template-based llms.txt generation
@@ -253,16 +368,20 @@ profound_takehome/
 │   ├── src/
 │   │   ├── api/client.ts        # Typed API client (axios)
 │   │   ├── hooks/
-│   │   │   └── useCrawlStream.ts# SSE EventSource React hook
+│   │   │   ├── useCrawlStream.ts  # SSE EventSource React hook
+│   │   │   ├── useCrawlStatus.ts  # Polling-based crawl job status
+│   │   │   └── useSites.ts        # Site list query hook
 │   │   ├── components/
 │   │   │   ├── UrlInput.tsx
 │   │   │   ├── CrawlVisualization.tsx  # Live crawl feed
 │   │   │   ├── CrawlConfigPanel.tsx    # Advanced crawl settings
-│   │   │   ├── LlmsTxtViewer.tsx
-│   │   │   └── SchedulePanel.tsx
+│   │   │   ├── LlmsTxtPreview.tsx      # Rendered llms.txt preview
+│   │   │   ├── LlmsTxtEditor.tsx       # CodeMirror markdown editor
+│   │   │   └── ScheduleConfig.tsx      # Cron schedule UI
 │   │   └── pages/
 │   │       ├── HomePage.tsx
-│   │       └── SitePage.tsx
+│   │       ├── SitePage.tsx
+│   │       └── HistoryPage.tsx
 │   ├── nginx.conf
 │   ├── package.json
 │   └── Dockerfile

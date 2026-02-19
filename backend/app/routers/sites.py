@@ -5,8 +5,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models import CrawlJob, Site
-from app.schemas import SiteCreate, SiteListResponse, SiteResponse
+from app.models import CrawlJob, GeneratedFile, MonitoringSchedule, Site
+from app.schemas import (
+    SiteCreate,
+    SiteListResponse,
+    SiteOverviewListResponse,
+    SiteOverviewResponse,
+    SiteResponse,
+)
 from app.services.task_queue import enqueue_crawl_task
 
 router = APIRouter(prefix="/api/sites", tags=["sites"])
@@ -68,6 +74,61 @@ async def list_sites(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Site).order_by(Site.created_at.desc()))
     sites = result.scalars().all()
     return SiteListResponse(sites=sites)
+
+
+@router.get("/overview", response_model=SiteOverviewListResponse)
+async def list_sites_overview(db: AsyncSession = Depends(get_db)):
+    sites_result = await db.execute(select(Site).order_by(Site.updated_at.desc()))
+    sites = sites_result.scalars().all()
+
+    latest_jobs_result = await db.execute(
+        select(CrawlJob)
+        .distinct(CrawlJob.site_id)
+        .order_by(CrawlJob.site_id, CrawlJob.created_at.desc(), CrawlJob.id.desc())
+    )
+    latest_jobs = {job.site_id: job for job in latest_jobs_result.scalars().all()}
+
+    latest_generated_result = await db.execute(
+        select(GeneratedFile)
+        .distinct(GeneratedFile.site_id)
+        .order_by(
+            GeneratedFile.site_id, GeneratedFile.created_at.desc(), GeneratedFile.id.desc()
+        )
+    )
+    latest_generated = {
+        generated.site_id: generated
+        for generated in latest_generated_result.scalars().all()
+    }
+
+    schedules_result = await db.execute(select(MonitoringSchedule))
+    schedules = {schedule.site_id: schedule for schedule in schedules_result.scalars().all()}
+
+    overview_sites: list[SiteOverviewResponse] = []
+    for site in sites:
+        latest_job = latest_jobs.get(site.id)
+        latest_file = latest_generated.get(site.id)
+        schedule = schedules.get(site.id)
+
+        overview_sites.append(
+            SiteOverviewResponse(
+                site=SiteResponse.model_validate(site),
+                latest_crawl_job_id=latest_job.id if latest_job else None,
+                latest_crawl_status=latest_job.status if latest_job else None,
+                latest_crawl_pages_crawled=latest_job.pages_crawled if latest_job else None,
+                latest_crawl_pages_found=latest_job.pages_found if latest_job else None,
+                latest_crawl_pages_changed=latest_job.pages_changed if latest_job else None,
+                latest_crawl_updated_at=latest_job.updated_at if latest_job else None,
+                latest_crawl_error_message=latest_job.error_message if latest_job else None,
+                llms_generated=latest_file is not None,
+                llms_generated_at=latest_file.created_at if latest_file else None,
+                llms_edited=latest_file.is_edited if latest_file else False,
+                schedule_active=bool(schedule and schedule.is_active),
+                schedule_cron_expression=schedule.cron_expression if schedule else None,
+                schedule_next_run_at=schedule.next_run_at if schedule else None,
+            )
+        )
+
+    return SiteOverviewListResponse(sites=overview_sites)
 
 
 @router.get("/{site_id}", response_model=SiteResponse)

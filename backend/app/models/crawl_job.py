@@ -18,7 +18,7 @@ class CrawlJob(Base, TimestampMixin):
     pages_removed: Mapped[int] = mapped_column(Integer, default=0)
     pages_unchanged: Mapped[int] = mapped_column(Integer, default=0)
     pages_skipped: Mapped[int] = mapped_column(Integer, default=0)
-    max_pages: Mapped[int] = mapped_column(Integer, default=200)
+    max_pages: Mapped[int] = mapped_column(Integer, default=500)
     llms_regenerated: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default="true"
     )

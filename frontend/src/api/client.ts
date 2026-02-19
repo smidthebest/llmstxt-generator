@@ -22,6 +22,23 @@ export interface Site {
   updated_at: string;
 }
 
+export interface SiteOverview {
+  site: Site;
+  latest_crawl_job_id: number | null;
+  latest_crawl_status: CrawlJob["status"] | null;
+  latest_crawl_pages_crawled: number | null;
+  latest_crawl_pages_found: number | null;
+  latest_crawl_pages_changed: number | null;
+  latest_crawl_updated_at: string | null;
+  latest_crawl_error_message: string | null;
+  llms_generated: boolean;
+  llms_generated_at: string | null;
+  llms_edited: boolean;
+  schedule_active: boolean;
+  schedule_cron_expression: string | null;
+  schedule_next_run_at: string | null;
+}
+
 export interface CrawlJob {
   id: number;
   site_id: number;
@@ -90,6 +107,9 @@ export const createSite = (url: string, config?: CrawlConfig) =>
 
 export const listSites = () =>
   api.get<{ sites: Site[] }>("/sites").then((r) => r.data.sites);
+
+export const listSitesOverview = () =>
+  api.get<{ sites: SiteOverview[] }>("/sites/overview").then((r) => r.data.sites);
 
 export const getSite = (id: number) =>
   api.get<Site>(`/sites/${id}`).then((r) => r.data);

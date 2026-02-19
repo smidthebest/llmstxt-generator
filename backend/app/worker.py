@@ -203,6 +203,10 @@ async def main() -> None:
     try:
         await worker_loop(stop_event, worker_id)
     finally:
+        # Shut down Playwright browser pool if it was started
+        from app.services.browser_pool import shutdown_pool
+        await shutdown_pool()
+
         if settings.run_scheduler and scheduler.running:
             scheduler.shutdown(wait=False)
         logger.info("Worker shutting down")

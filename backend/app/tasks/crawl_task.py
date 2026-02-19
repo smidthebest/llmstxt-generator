@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from datetime import datetime, timezone
 
 from sqlalchemy import select
@@ -199,7 +200,13 @@ async def run_crawl_job(
             on_page_skipped=on_page_skipped,
             **crawler_kwargs,
         )
+        t_crawl_start = time.monotonic()
         crawl_results = await crawler.crawl()
+        t_crawl_end = time.monotonic()
+        logger.info(
+            "Crawl phase for %s: %.1fs (%d pages)",
+            site.domain, t_crawl_end - t_crawl_start, len(crawl_results),
+        )
 
         # Update site title/description from root page
         if crawl_results:
@@ -259,6 +266,7 @@ async def run_crawl_job(
             job.status = "generating"
             await db.commit()
 
+            t_gen_start = time.monotonic()
             if settings.llmstxt_openai_key:
                 from app.services.llm_generator import generate_llms_txt_with_llm
 
@@ -269,6 +277,11 @@ async def run_crawl_job(
                     site.description = site_desc
             else:
                 content, content_hash = generate_llms_txt(site, active_pages)
+            t_gen_end = time.monotonic()
+            logger.info(
+                "LLM generation for %s: %.1fs (%d active pages, %d chars output)",
+                site.domain, t_gen_end - t_gen_start, len(active_pages), len(content),
+            )
 
             generated = GeneratedFile(
                 site_id=site_id,

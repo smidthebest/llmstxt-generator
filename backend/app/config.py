@@ -15,7 +15,7 @@ class Settings(BaseSettings):
             )
         return self
     max_crawl_depth: int = 3
-    max_crawl_pages: int = 200
+    max_crawl_pages: int = 500
     crawl_concurrency: int = 20
     crawl_delay_ms: int = 50
     llmstxt_openai_key: str = ""

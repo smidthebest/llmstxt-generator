@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
@@ -20,6 +21,81 @@ SKIP_EXTENSIONS = {
     ".pdf", ".zip", ".tar", ".gz", ".mp4", ".mp3", ".wav",
     ".css", ".js", ".woff", ".woff2", ".ttf", ".eot",
 }
+
+# Realistic browser headers to avoid WAF/bot-detection blocks
+BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/131.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    # Note: Do NOT set Accept-Encoding — let httpx negotiate automatically.
+    # Setting "br" without the brotli library installed causes garbled responses.
+    "Cache-Control": "no-cache",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
+}
+
+# Patterns that indicate a bot-protection / challenge page
+_BOT_PROTECTION_PATTERNS = [
+    re.compile(r"Access Denied", re.IGNORECASE),
+    re.compile(r"Just a moment\.\.\.", re.IGNORECASE),
+    re.compile(r"Enable JavaScript and cookies to continue", re.IGNORECASE),
+    re.compile(r"challenge-platform", re.IGNORECASE),
+    re.compile(r"Checking your browser", re.IGNORECASE),
+    re.compile(r"Attention Required.*Cloudflare", re.IGNORECASE | re.DOTALL),
+    re.compile(r"cf-browser-verification", re.IGNORECASE),
+    re.compile(r"Pardon Our Interruption", re.IGNORECASE),
+    re.compile(r"Please verify you are a human", re.IGNORECASE),
+    re.compile(r"blocked.*bot", re.IGNORECASE),
+]
+
+
+def _is_bot_protected(html: str) -> bool:
+    """Check if the HTML response is a bot-protection / challenge page."""
+    # Only check the first 5000 chars for performance
+    sample = html[:5000]
+    return any(pattern.search(sample) for pattern in _BOT_PROTECTION_PATTERNS)
+
+
+_SPA_MOUNT_IDS = {"root", "app", "__next", "__nuxt", "gatsby-focus-wrapper"}
+
+
+def _is_spa_page(html: str) -> bool:
+    """Detect if the page is a client-rendered SPA with no server-side content.
+
+    Conditions (all must be true):
+    1. Has a known SPA mount-point div (id="root", "app", "__next", etc.)
+    2. Very little visible text in <body> (< 200 chars)
+    3. Very few <a> links (< 3)
+    """
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(html, "lxml")
+    body = soup.body
+    if not body:
+        return False
+
+    # Check for SPA mount points
+    has_mount = any(
+        body.find(id=mid) is not None for mid in _SPA_MOUNT_IDS
+    )
+    if not has_mount:
+        return False
+
+    # Strip non-content tags
+    for tag in body(["script", "style", "noscript", "template", "svg"]):
+        tag.decompose()
+
+    visible_text = body.get_text(strip=True)
+    link_count = len(body.find_all("a", href=True))
+
+    return len(visible_text) < 200 and link_count < 3
 
 
 @dataclass
@@ -64,19 +140,38 @@ class Crawler:
         self.results: list[tuple[PageMetadata, int]] = []  # (metadata, depth)
         self.skipped: int = 0
         self.robot_parser: RobotExclusionRulesParser | None = None
+        self._blocked_count: int = 0
+        self._use_playwright: bool = False
 
     async def crawl(self) -> list[tuple[PageMetadata, int]]:
         async with httpx.AsyncClient(
             timeout=15.0,
             follow_redirects=True,
             http2=True,
-            headers={"User-Agent": "LlmsTxtGenerator/1.0"},
+            headers=BROWSER_HEADERS,
             limits=httpx.Limits(
                 max_connections=self.concurrency + 5,
                 max_keepalive_connections=self.concurrency,
             ),
         ) as client:
             self.client = client
+
+            # Resolve redirects so self.domain matches the final host
+            # (e.g. cnn.com → www.cnn.com)
+            try:
+                head = await client.head(self.root_url)
+                final_url = self._normalize_url(str(head.url))
+                final_parsed = urlparse(final_url)
+                if final_parsed.netloc and final_parsed.netloc != self.domain:
+                    logger.info(
+                        "Root redirect: %s → %s", self.domain, final_parsed.netloc
+                    )
+                    self.domain = final_parsed.netloc
+                    self.scheme = final_parsed.scheme
+                    self.root_url = final_url
+            except Exception:
+                pass  # proceed with original domain
+
             await self._load_robots()
             sitemap_urls = await self._load_sitemap()
 
@@ -95,7 +190,52 @@ class Crawler:
                 w.cancel()
             await asyncio.gather(*workers, return_exceptions=True)
 
+            # If we got no results and any pages were blocked, fall back to
+            # building pages from sitemap URLs alone.
+            if not self.results and sitemap_urls and self._blocked_count > 0:
+                logger.info(
+                    "Site %s is bot-protected; falling back to %d sitemap URLs",
+                    self.domain,
+                    len(sitemap_urls),
+                )
+                await self._sitemap_fallback(sitemap_urls)
+
         return self.results
+
+    async def _sitemap_fallback(self, sitemap_urls: list[str]) -> None:
+        """Build minimal page entries from sitemap URLs when pages can't be
+        fetched due to bot protection.  We infer title from the URL path and
+        run the normal categoriser / relevance scorer so the LLM generator
+        still has useful structure to work with."""
+        from app.services.categorizer import categorize_page
+
+        for url in sitemap_urls[: self.max_pages]:
+            parsed = urlparse(url)
+            # Derive a readable title from the URL path
+            path = parsed.path.strip("/")
+            if path:
+                title = path.split("/")[-1].replace("-", " ").replace("_", " ").title()
+            else:
+                title = parsed.netloc
+
+            category = categorize_page(url, 1)
+            metadata = PageMetadata(
+                url=url,
+                title=title,
+                description=None,
+                content_hash="",
+                metadata_hash="",
+                headings_hash="",
+                text_hash="",
+                links=[],
+                canonical_url=None,
+                http_status=0,  # sentinel: never actually fetched
+            )
+            self.results.append((metadata, 1))
+            if self.on_page_crawled:
+                await self.on_page_crawled(
+                    metadata, 1, len(self.results), len(self.results)
+                )
 
     async def _crawl_worker(self) -> None:
         while True:
@@ -139,7 +279,35 @@ class Crawler:
             finally:
                 self._queue.task_done()
 
+    async def _render_with_playwright(self, url: str) -> tuple[PageMetadata | None, str | None]:
+        """Tier 2: render a page with headless Chromium."""
+        from app.services.browser_pool import get_pool
+
+        pool = await get_pool()
+        html = await pool.render(url)
+        if html is None:
+            return None, "Playwright render failed"
+        final_url = self._normalize_url(url)
+        metadata = extract_metadata(final_url, html, http_status=200)
+        if metadata is None:
+            return None, "Empty content after JS render"
+        return metadata, None
+
     async def _fetch_page(self, url: str) -> tuple[PageMetadata | None, str | None]:
+        # ── Tier 2 fast-path: domain already flagged as SPA ──
+        if self._use_playwright:
+            metadata, render_error = await self._render_with_playwright(url)
+            if metadata is not None:
+                return metadata, None
+            logger.warning(
+                "Playwright fast-path failed for %s (%s); falling back to httpx",
+                url,
+                render_error or "unknown error",
+            )
+            # Degrade gracefully for this crawl if Chromium rendering starts failing.
+            self._use_playwright = False
+
+        # ── Tier 1: httpx ──
         try:
             headers = {}
             existing = self.existing_page_state.get(url)
@@ -172,16 +340,43 @@ class Crawler:
                     None,
                 )
 
+            if resp.status_code == 403:
+                self._blocked_count += 1
+                return None, "HTTP 403 (access denied)"
             if resp.status_code != 200:
                 return None, f"HTTP {resp.status_code}"
             content_type = resp.headers.get("content-type", "")
             if "text/html" not in content_type:
                 return None, f"Non-HTML ({content_type.split(';')[0].strip()})"
 
+            html_text = resp.text
+
+            # Detect bot-protection / challenge pages — try Playwright
+            if _is_bot_protected(html_text):
+                self._blocked_count += 1
+                logger.info("Bot protection detected on %s, trying Playwright", url)
+                result = await self._render_with_playwright(url)
+                if result[0] is not None:
+                    self._use_playwright = True
+                    logger.info("Playwright bypassed bot protection on %s", self.domain)
+                    return result
+                return None, "Bot protection (challenge page)"
+
+            # Detect SPA — switch to Playwright for this + all future pages
+            if _is_spa_page(html_text):
+                logger.info("SPA detected on %s, trying Playwright", self.domain)
+                result = await self._render_with_playwright(url)
+                if result[0] is not None:
+                    self._use_playwright = True
+                    logger.info("Playwright rendering enabled for %s", self.domain)
+                    return result
+                # Playwright unavailable or failed — return whatever httpx got
+                logger.warning("Playwright unavailable, using raw httpx HTML for SPA")
+
             final_url = self._normalize_url(str(resp.url))
             metadata = extract_metadata(
                 final_url,
-                resp.text,
+                html_text,
                 etag=resp.headers.get("etag"),
                 last_modified=resp.headers.get("last-modified"),
                 http_status=resp.status_code,
@@ -222,22 +417,50 @@ class Crawler:
         return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}{path}"
 
     async def _load_robots(self):
+        self._robots_txt = ""
         try:
             resp = await self.client.get(f"{self.scheme}://{self.domain}/robots.txt")
             if resp.status_code == 200:
+                self._robots_txt = resp.text
                 self.robot_parser = RobotExclusionRulesParser()
                 self.robot_parser.parse(resp.text)
         except Exception:
             pass
 
+    def _sitemap_urls_from_robots(self) -> list[str]:
+        """Extract Sitemap: directives from robots.txt."""
+        urls = []
+        for line in self._robots_txt.splitlines():
+            stripped = line.strip()
+            if stripped.lower().startswith("sitemap:"):
+                # "Sitemap: https://example.com/sitemap.xml" → grab everything after "Sitemap:"
+                url = stripped[len("sitemap:"):].strip()
+                if url:
+                    urls.append(url)
+        return urls
+
     async def _load_sitemap(self) -> list[str]:
         urls: list[str] = []
-        try:
-            await self._parse_sitemap(
-                f"{self.scheme}://{self.domain}/sitemap.xml", urls, depth=0
-            )
-        except Exception:
-            pass
+
+        # Try sitemaps declared in robots.txt first
+        robots_sitemaps = self._sitemap_urls_from_robots()
+        for sm_url in robots_sitemaps:
+            try:
+                await self._parse_sitemap(sm_url, urls, depth=0)
+            except Exception:
+                pass
+            if len(urls) >= self.max_pages:
+                return urls[: self.max_pages]
+
+        # Fall back to conventional /sitemap.xml if robots.txt had none
+        if not robots_sitemaps:
+            try:
+                await self._parse_sitemap(
+                    f"{self.scheme}://{self.domain}/sitemap.xml", urls, depth=0
+                )
+            except Exception:
+                pass
+
         return urls[:self.max_pages]
 
     async def _parse_sitemap(
