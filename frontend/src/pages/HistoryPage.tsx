@@ -223,11 +223,6 @@ export default function HistoryPage() {
                       <div className="text-[11px] text-[#888] mt-1 truncate max-w-[280px] font-mono">
                         {row.site.url}
                       </div>
-                      {row.site.title && (
-                        <div className="text-xs text-[#bbb] mt-1 truncate max-w-[340px]">
-                          {row.site.title}
-                        </div>
-                      )}
                     </td>
 
                     <td className="px-4 py-4 align-top">
